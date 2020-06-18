@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cpp-master
+  namespace: cppipeline
+  labels:
+    app: cpp-master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cpp-master
+  template:
+    metadata:
+      labels:
+        app: cpp-master
+    spec:
+      containers:
+      - name: cpp-master
+        image: pharmbio/cpp_master:latest
+        imagePullPolicy: Always
+        command: ["/bin/sh"]
+        args: ["-c", "echo hej; sleep 10000; echo done;"]
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi 
+          requests:
+            cpu: 1000m
+            memory: 1Gi 
+        volumeMounts:
+        - mountPath: "/home/user/.kube/"
+          name: kube-config
+      restartPolicy: Always 
+      volumes:
+      - name: kube-config
+        secret:
+          secretName: cppipipeline-kube-conf                                                                          
+          items:
+          - key: kube-config
+            path: config
