@@ -18,5 +18,5 @@
 * Create rancher user in namespace cppipeline
 * Get rancher user .kube/config-file
 * Generate kube config secret:
-* * kubectl delete secret -n cppipeline cppipipeline-kube-conf
-* * kubectl create secret generic cppipipeline-kube-conf -n cppipeline --from-file=kube-config
+  * `kubectl delete secret -n cppipeline cppipipeline-kube-conf`
+  * `kubectl create secret generic cppipipeline-kube-conf -n cppipeline --from-file=kube-config`
