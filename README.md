@@ -1,11 +1,21 @@
 # Continiopus Cellpainting 
 
+## Usage
+```
+# Start worker
+cd worker
+kubectl apply -f deployment.yaml
+
+# Log in to worker for debugging
+kubectl exec -it -n cppipeline <name of pod> -- bash
+```
+
 ## TODO cpp_master.py
 * get channel_map into the database
 * get plate acqusitions into the database
 * fetch db login info from secret
 * fetch only images that have not been analysed from a plate acqusition?
-* store the imgset file as a configmap for each job?
+* store the imgset file as a configmap for each job? Or maybe instead as a text file on fileserver that are mounted and also contains final results (this way we get a better documentation of how analyses were run together with result)
 * fix the job spec yaml, the command and mount paths (root vs user etc)
 * make sure the worker container image exists and works
 
