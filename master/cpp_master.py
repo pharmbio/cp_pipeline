@@ -27,6 +27,7 @@ import yaml
 from random import randrange
 import base64
 import os
+import pdb
 
 # start logging
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
@@ -114,23 +115,28 @@ def make_imgset_csv(imgsets, channel_map):
 try:
 
     # load the kube config
-    config.load_kube_config()
+    config.load_kube_config('/home/user/.kube/config')
 
     # fetch db secret
-    # secret = client.CoreV1Api().read_namespaced_secret("postgres-pass", "cppipeline")
+    secret = client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
+    postgres_password = base64.b64decode(secret.data['password.postgres']).decode()
+
+    # fetch db settings
+    configmap = client.CoreV1Api().read_namespaced_config_map("cpp-configs", "cpp")
+    config = yaml.load(configmap.data['configs.yaml'])
 
     # connect to the db
     logging.info("Connecting to db.")
     connection = None
-    connection = psycopg2.connect(  database='imagedb', 
-                                    user='postgres', 
-                                    host='130.238.44.10', 
-                                    port='5432', 
-                                    password='example')
+    connection = psycopg2.connect(  database=config['postgres']['db'], 
+                                    user=config['postgres']['user'],
+                                    host=config['postgres']['host'],
+                                    port=config['postgres']['port'], 
+                                    password=postgres_password)
 
     # make results into dicts
     cursor = connection.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    
+    pdb.set_trace()    
     # ask for all new plate acquisitions
 #    logging.debug('Running query.')
 #    cursor.execute('''

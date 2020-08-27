@@ -1,0 +1,8 @@
+postgres:
+    db:     imagedb
+    user:   postgres
+    host:   111.111.111.111
+    port:   5432
+
+    
+
