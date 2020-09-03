@@ -1,4 +1,4 @@
-# Continiopus Cellpainting 
+# Continuous Cellpainting 
 
 ## Usage
 ```
