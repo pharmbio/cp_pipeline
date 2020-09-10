@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cpp-master
-  namespace: cppipeline
+  namespace: cpp
   labels:
     app: cpp-master
 spec:
@@ -35,7 +35,4 @@ spec:
       volumes:
       - name: kube-config
         secret:
-          secretName: cppipipeline-kube-conf                                                                          
-          items:
-          - key: kube-config
-            path: config
+          secretName: cpp-user-kube-config

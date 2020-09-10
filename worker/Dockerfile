@@ -118,9 +118,11 @@ RUN chmod -R a+wrx /mnt/data /root/
 
 RUN pip install -U pip setuptools
 
+COPY cpp_worker.sh /
+RUN chmod a+x /cpp_worker.sh
+
 WORKDIR /mnt/img
 ENTRYPOINT ["cellprofiler"]
-
 
 
 
