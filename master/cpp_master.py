@@ -31,11 +31,26 @@ import pathlib
 import pdb
 import json
 import string
+from itertools import islice
+
 
 # start logging
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
             datefmt='%Y-%m-%d:%H:%M:%S',
             level=logging.DEBUG)
+
+
+# divide a dict into smaller dicts with a set number of items in each
+def chunk_dict(data, chunk_size=1):
+
+    # create iterator of the dict
+    it = iter(data)
+
+    # for each step
+    for i in range(0, len(data), chunk_size):
+
+        # produce a dict with chunk_size items in it
+        yield {k:data[k] for k in islice(it, chunk_size)}
 
 
 
@@ -106,15 +121,15 @@ def make_imgset_csv(imgsets, channel_map):
     header = ""
    
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"FileName_{ch_nr}_{ch_name},"
+        header += f"FileName_w{ch_nr}_{ch_name},"
 
     header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"PathName_{ch_nr}_{ch_name},"
+        header += f"PathName_w{ch_nr}_{ch_name},"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"URL_{ch_nr}_{ch_name},"
+        header += f"URL_w{ch_nr}_{ch_name},"
 
     # remove last comma and add newline
     header = header[:-1]+"\n"
@@ -124,8 +139,8 @@ def make_imgset_csv(imgsets, channel_map):
     content = ""
 
     # for each imgset
-    for imgset_counter,imgset in enumerate(imgsets):
-
+    for imgset_counter,imgset in enumerate(imgsets.values()):
+        #pdb.set_trace()
         # construct the csv row
         row = ""
 
@@ -147,7 +162,7 @@ def make_imgset_csv(imgsets, channel_map):
 
         # add file urls
         for img in sorted_imgset:
-            row += f"file:{img['path']}"
+            row += f"file:{img['path']},"
 
         # remove last comma and add a newline before adding it to the content
         content += row[:-1] + "\n"
@@ -175,6 +190,7 @@ spec:
       - name: cpp-worker
         image: pharmbio/cpp_worker:latest
         imagePullPolicy: Always
+        # command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
         env:
         - name: PIPELINE_FILE
@@ -191,7 +207,7 @@ spec:
               cpu: 1000m
               memory: 8Gi 
         volumeMounts:
-        - mountPath: /share/mikro
+        - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
         - mountPath: /root/.kube/
           name: kube-config
@@ -227,7 +243,7 @@ try:
 
     # fetch db settings
     configmap = client.CoreV1Api().read_namespaced_config_map("cpp-configs", "cpp")
-    config = yaml.load(configmap.data['configs.yaml'])
+    config = yaml.load(configmap.data['configs.yaml'], Loader=yaml.FullLoader)
 
 
     if debug:
@@ -291,7 +307,10 @@ try:
         channel_map = {}
         for channel in channel_map_res:
             channel_map[channel['channel']] = channel['dye']
-
+        
+        # make sure channel map is populated
+        if len(channel_map) == 0:
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         # fetch all images belonging to the plate acquisition
         logging.debug('Fetching images belonging to plate acqusition.')
@@ -318,21 +337,36 @@ try:
                 imgsets[imgset_id] = [img['path']]
                 img_infos[imgset_id] = [img]
 
-        # submit each imgset as a job
-        for i,imgset_id in enumerate(imgsets):
-            #print(imgset)
 
+        # get analysis settings
+        try:
+            cellprofiler_settings = analysis['meta']['cellprofiler']
+        except KeyError:
+            logging.error(f"Unable to get cellprofiler settings for analysis: id={analysis['id']}")
+
+        # check if all imgsets should be in the same job
+        try:
+            chunk_size = cellprofiler_settings['batching'] 
+            pipeline_file = cellprofiler_settings['pipeline']
+        except KeyError:
+            logging.error(f"Unable to get cellprofiler details from analysis entry: id={analysis['id']}")
+            chunk_size = 1
+        if chunk_size <= 0:
+            # put them all in the same job if chunk size is less or equal to zero
+            chunk_size = len(imgsets)
+        
+        # create chunks and submit as separate jobs
+        for imgset_chunk in chunk_dict(img_infos, chunk_size):
 
             # generate names
             random_identifier = ''.join(random.SystemRandom().choice(string.ascii_lowercase + string.digits) for _ in range(8))
-            pipeline_file = f"/cpp_work/pipelines/v1.cppipe"
             imageset_file = f"/cpp_work/input/cpp-worker-job-{analysis['id']}-{random_identifier}.csv"
-            output_path = f"/cpp_worker/output/cpp-worker-job-{analysis['id']}-{random_identifier}/"
+            output_path = f"/cpp_work/output/cpp-worker-job-{analysis['id']}-{random_identifier}/"
             job_name = f"cpp-worker-job-{analysis['id']}-{random_identifier}"
             job_yaml = make_job_yaml(pipeline_file, imageset_file, output_path, job_name)
 
             # generate cellprofiler imgset file for this imgset
-            imageset_content = make_imgset_csv(imgsets=[img_infos[imgset_id]], channel_map=channel_map)
+            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map)
             with open(imageset_file, 'w') as imageset_csv:
                 imageset_csv.write(imageset_content)
             
@@ -355,6 +389,24 @@ try:
 
 
 
+
+def main:
+    pass
+    
+
+
+
+
+
+
+
+
+
+
+
+
+#if __name__ == "__main__":
+#    main()
 
 # catch db errors
 except (psycopg2.Error) as error:
