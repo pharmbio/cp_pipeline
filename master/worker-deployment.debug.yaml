@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job 
+metadata:
+  name: debug-cpp-worker
+  namespace: cpp
+  labels:
+    pod-type: cpp
+spec:
+  backoffLimit: 0                                                                                                                                             
+  template:
+    spec:
+      containers:
+      - name: cpp-worker
+        image: pharmbio/cpp_worker:latest
+        imagePullPolicy: Always
+        command: ["sleep", "3600"]
+        #command: ["/cpp_worker.sh"]
+        env:
+        - name: PIPELINE_FILE
+          value: debug.cppipe
+        - name: IMAGESET_FILE
+          value: imgset.csv
+        - name: OUTPUT_PATH
+          value: /cpp_work/
+        resources:
+            limits:
+              cpu: 1000m
+              memory: 8Gi 
+            requests:
+              cpu: 1000m
+              memory: 8Gi 
+        volumeMounts:
+        - mountPath: /share/mikro/IMX/MDC_pharmbio/
+          name: mikroimages
+        - mountPath: /root/.kube/
+          name: kube-config
+        - mountPath: /cpp_work
+          name: cpp
+      restartPolicy: Never
+      volumes:
+      - name: mikroimages
+        persistentVolumeClaim:
+          claimName: micro-images-pvc
+      - name: cpp
+        persistentVolumeClaim:
+          claimName: cpp-pvc
+      - name: kube-config
+        secret:
+          secretName: cpp-user-kube-config
+
