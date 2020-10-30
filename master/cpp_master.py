@@ -403,6 +403,27 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
 
 
+
+# work in process
+def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
+
+    # todo
+    return
+
+    # generate the paths needed
+    plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, analysis['sub_id'])
+    storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
+
+    # get the jupyter yaml, giving the paths needed as arguments
+
+
+
+
+
+
+
+
+
 def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
         analysis_id = analysis["analysis_id"]
@@ -817,7 +838,7 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
 
 
 # go through unfinished analyses and wrap them up if possible
-def handle_finished_analyses(cursor, connection, storage_root):
+def handle_finished_analyses(cursor, connection):
 
     # fetch all unfinished analyses
     cursor.execute(f"""
@@ -1093,7 +1114,7 @@ def main():
     
     
             # check for finished analyses
-            handle_finished_analyses(cursor, connection, storage_root)
+            handle_finished_analyses(cursor, connection)
         
         
         # catch db errors
