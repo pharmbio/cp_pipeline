@@ -392,20 +392,17 @@ def handle_new_jobs(cursor, connection, job_limit=None):
         if analysis['meta']['type'] == 'cellprofiler':
             handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
 
-        elif analysis['meta']['type'] == 'jupiter_notebook':
-            # handle_analysis_jupiter_notebook(analysis)
-            pass
+        elif analysis['meta']['type'] == 'jupyter_notebook':
+            handle_anlysis_jupyter_notebook(analysis)
 
         else:
-            raise ValueError(f'Unknown analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
+            raise ValueError(f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
 
 
 
-
-
-
-# work in process
-def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
+def handle_anlysis_jupyter_notebook(analysis):
+    
+    logging.info('Found analysis')
 
     # todo
     return
@@ -415,8 +412,6 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
     storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
 
     # get the jupyter yaml, giving the paths needed as arguments
-
-
 
 
 
