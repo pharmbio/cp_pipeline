@@ -15,8 +15,8 @@ services:
     environment:
       - DEBUG=1
     volumes:
-      - /home/dahlo/testarea/cpp/master/:/data # mount the master script from the fs of the dev node
-      - /home/dahlo/.kube:/home/user/.kube # mount the kube credentials from the fs of the dev node
+      - ./:/data # mount the master script from the fs of the dev node
+      - ../kube_config/:/home/user/.kube # mount the kube credentials from the fs of the dev node
       - /share/data/cellprofiler/automation/:/cpp_work # mount the work and result nfs share from the fs of the dev node
     networks:
       - db-net
