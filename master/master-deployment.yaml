@@ -19,8 +19,7 @@ spec:
       - name: cpp-master
         image: pharmbio/cpp_master:latest
         imagePullPolicy: Always
-        command: ["/bin/sh"]
-        args: ["-c", "echo hej; sleep 10000; echo done;"]
+        command: ["python3", "/cpp/cpp_master.py"]
         resources:
           limits:
             cpu: 1000m
@@ -29,10 +28,15 @@ spec:
             cpu: 1000m
             memory: 1Gi 
         volumeMounts:
-        - mountPath: "/home/user/.kube/"
+        - mountPath: /home/user/.kube/
           name: kube-config
-      restartPolicy: Always 
+        - mountPath: /cpp_work
+          name: cpp
+      restartPolicy: Always
       volumes:
+      - name: cpp
+        persistentVolumeClaim:
+          claimName: cpp-pvc
       - name: kube-config
         secret:
           secretName: cpp-user-kube-config

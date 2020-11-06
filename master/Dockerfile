@@ -14,7 +14,7 @@ USER user
 WORKDIR /home/user
 
 # add scripts later
-COPY cpp_master.py /analyses/
+COPY cpp_master.py /cpp/
 
 
 

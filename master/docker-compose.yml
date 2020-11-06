@@ -15,9 +15,9 @@ services:
     environment:
       - DEBUG=1
     volumes:
-      - ./:/data # mount the master script from the fs of the dev node
+      - ./:/cpp # mount the pwd to the container
       - ../kube_config/:/home/user/.kube # mount the kube credentials from the fs of the dev node
       - /share/data/cellprofiler/automation/:/cpp_work # mount the work and result nfs share from the fs of the dev node
     networks:
       - db-net
-    command: ["python3", "/data/cpp_master.py"]
+    command: ["python3", "/cpp/cpp_master.py"]

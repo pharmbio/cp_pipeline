@@ -178,13 +178,11 @@ def make_imgset_csv(imgsets, channel_map):
 
 
 
+def  make_jupyter_yaml(notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file):
 
-
-def make_jupyter_yaml(cmd, job_name, analysis_id, sub_analysis_id, docker_image="jupyter/minimal-notebook:latest"):
-
-    # check if the command is a string, in which case it should be converted to a list of words.
-    if isinstance(cmd, str):
-        cmd = cmd.split(' ')
+    docker_image="pharmbio/pharmbio-notebook:tf-2.1.0"
+    
+    # docker run -e WORK_FOLDER="katt" -it -u root -v /share/data/cellprofiler/automation/:/cpp_work/ pharmbio/pharmbio-notebook:tf-2.1.0 jupyter nbconvert --to pdf --output=/cpp_work/notebooks/hello.output.ipynb.pdf /cpp_work/notebooks/hello.ipynb
 
     return yaml.safe_load(f"""
 
@@ -207,14 +205,12 @@ spec:
         image: {docker_image}
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
-        command: {cmd}
-#        env:
-#        - name: PIPELINE_FILE
-#          value: {pipeline_file}
-#        - name: IMAGESET_FILE
-#          value: {imageset_file}
-#        - name: OUTPUT_PATH
-#          value: {output_path}
+        command: ["jupyter", "nbconvert","--to","pdf","--execute", "--output-dir","{output_path}", "{notebook_file}"]
+        env:
+        - name: ANALYSIS_INPUT_FILE
+          value: {analysis_input_file}
+        - name: ANALYSIS_INPUT_FOLDER
+          value: {analyis_input_folder}
         resources:
             limits:
               cpu: 1000m
@@ -331,7 +327,7 @@ def load_cpp_config():
     # fetch db settings
     configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", "cpp")
     if is_debug():
-        with open('/data/configs_debug.yaml', 'r') as configs_debug:
+        with open('/cpp/configs_debug.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
     
     else:
@@ -382,8 +378,6 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
    # for all unstarted analyses 
     for analysis in analyses:
-
-
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
             continue
@@ -393,27 +387,63 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
 
         elif analysis['meta']['type'] == 'jupyter_notebook':
-            handle_anlysis_jupyter_notebook(analysis)
+            handle_anlysis_jupyter_notebook(analysis, cursor, connection)
 
         else:
             raise ValueError(f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
 
 
 
-def handle_anlysis_jupyter_notebook(analysis):
+def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
+
+    analysis_id = analysis["analysis_id"]
+    sub_analysis_id = analysis["sub_id"]
+    acquisition_id = analysis["plate_acquisition_id"]
     
-    logging.info('Found analysis')
+    logging.info('Inside handle_anlysis_jupyter_notebook')
 
-    # todo
-    return
+    notebook_file = "/cpp_work/notebooks/" + analysis["meta"]["notebook_file"]
 
-    # generate the paths needed
-    plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, analysis['sub_id'])
-    storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
-
-    # get the jupyter yaml, giving the paths needed as arguments
+    logging.info('Notebook file:' + notebook_file)
 
 
+    # if indata is from a previous analysis
+    if "indata_analysis_id" in analysis["meta"]:
+        indata_analysis_id = analysis["meta"][ "indata_analysis_id"]
+        input_storage_paths = get_storage_paths_from_analysis_id(cursor, indata_analysis_id)
+        analyis_input_folder = input_storage_paths['full']
+        analysis_input_file = "Nothing"
+    else:
+        input_storage_paths = get_storage_paths_from_analysis_id(cursor, analysis_id)
+        analyis_input_folder = input_storage_paths['full']
+        analysis_input_file = "Nothing"
+
+    # To do - create general method for this (its duplicated in handle_analysis_cellprofiler) 
+    # generate names
+    random_identifier = generate_random_identifier(8)
+    job_number = 0;
+    n_jobs = 1
+    job_id = f"{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
+    output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
+    job_name = f"cpp-worker-job-{job_id}"
+
+
+    job_yaml = make_jupyter_yaml(notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file)
+
+    logging.info("yaml:" + yaml.dump( job_yaml, default_flow_style=False, default_style='' ))
+
+    k8s_batch_api = kubernetes.client.BatchV1Api()
+    resp = k8s_batch_api.create_namespaced_job(
+                 body=job_yaml, namespace="cpp")
+    logging.info(f"Deployment created. status='{resp.metadata.name}'")
+
+     # when all chunks of the sub analysis are sent in, mark the sub analysis as started
+    mark_analysis_as_started(cursor, connection, analysis_id)
+    mark_sub_analysis_as_started(cursor, connection, sub_analysis_id)
+
+#    # generate the paths needed
+#    plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, analysis['sub_id'])
+#    storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
 
 
 
@@ -514,7 +544,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 #            print(dep)
             resp = k8s_batch_api.create_namespaced_job(
                     body=job_yaml, namespace="cpp")
-            logging.warning(f"Deployment created. status='{resp.metadata.name}'")
+            logging.info(f"Deployment created. status='{resp.metadata.name}'")
 
             if job_limit is not None and i >= (job_limit-1):
                 print("exit here")
@@ -736,21 +766,37 @@ def get_analysis_sub_id_from_family_name(family_name):
 
 
 
-def get_plate_info(cursor, analysis_sub_id):
+def get_analysis_info(cursor, analysis_id):
 
     # fetch all images belonging to the plate acquisition
     logging.info('Fetching plate info from view.')
     query = f"""
                         SELECT *
                         FROM image_analyses_v1
-                        WHERE image_sub_analyses_sub_id='{analysis_sub_id}'
+                        WHERE id='{analysis_id}'
                        """ # also NOT IN (select * from images_analysis where analysed=None) or something
 
     logging.info(query)
     cursor.execute(query)
     plate_info = cursor.fetchone()
 
-    return (plate_info['plate_barcode'], plate_info['plate_acquisition_id'], plate_info['image_analyses_id'])
+    return plate_info
+
+def get_sub_analysis_info(cursor, analysis_sub_id):
+
+    # fetch all images belonging to the plate acquisition
+    logging.info('Fetching plate info from view.')
+    query = f"""
+                        SELECT *
+                        FROM image_sub_analyses_v1
+                        WHERE sub_id='{analysis_sub_id}'
+                       """ # also NOT IN (select * from images_analysis where analysed=None) or something
+
+    logging.info(query)
+    cursor.execute(query)
+    plate_info = cursor.fetchone()
+
+    return plate_info
 
 
 
@@ -852,11 +898,18 @@ def handle_finished_analyses(cursor, connection):
         # get all sub analysis belonging to the analysis
 
         # fetch all unfinished analyses
-        cursor.execute(f"""
+        
+            
+        sql = (f"""
             SELECT *
             FROM image_sub_analyses
             WHERE analysis_id={analysis['id']}
             """) # also NOT IN (select * from images_analysis where analysed=None) or something
+
+        logging.debug("sql" + sql)
+        
+        cursor.execute(sql)
+
         sub_analyses = cursor.fetchall()
 
 
@@ -997,9 +1050,6 @@ def mark_analysis_as_started(cursor, connection, analysis_id):
 
 
 
-
-
-
 def mark_sub_analysis_as_started(cursor, connection, sub_analysis_id):
 
     query = """ UPDATE image_sub_analyses
@@ -1048,9 +1098,35 @@ WHERE id={analysis_id};
     connection.commit()
 
 
+def get_storage_paths_from_analysis_id(cursor, analysis_id):
+
+    analysis_info = get_analysis_info(cursor, analysis_id)
+    
+    plate_barcode = analysis_info["plate_barcode"]
+    acquisition_id = analysis_info["plate_acquisition_id"]
+
+    storage_paths = {
+        "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
+        "mount_point":"/cpp_work/",
+        "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
+        }
+    return storage_paths
 
 
+def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
+    analysis_info = get_sub_analysis_info(cursor, sub_analysis_id)
+
+    plate_barcode = analysis_info["plate_barcode"]
+    acquisition_id = analysis_info["plate_acquisition_id"]
+    analysis_id =  analysis_info["analyses_id"]
+
+    storage_paths = {
+        "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
+        "mount_point":"/cpp_work/",
+        "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
+        }
+    return storage_paths
 
 def main():
 
@@ -1064,15 +1140,13 @@ def main():
         try:
     
             if is_debug():
-                job_limit = 15
+                job_limit = None
             else:
                 job_limit = None
             
             init_kubernetes_connection()
             cpp_config = load_cpp_config()
             connection, cursor = connect_db(cpp_config)
-
-
 
 
             if len(sys.argv) > 1 and sys.argv[1] == "reset" and first_reset:
@@ -1090,22 +1164,20 @@ def main():
                 # get plate info
     #            pdb.set_trace()
                 # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
-                plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, get_analysis_sub_id_from_family_name(family_name))
-                storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
+                storage_paths = get_storage_paths_from_sub_analysis_id(cursor, get_analysis_sub_id_from_family_name(family_name))
 
-    
                 # merge all job csvs into family csv
                 merged_csvs = merge_family_jobs_csv(family_name, job_list)
     #            pdb.set_trace()
                 # write csv to storage location
-                files_created = write_csv_to_storage(merged_csvs, storage_root)
+                files_created = write_csv_to_storage(merged_csvs, storage_paths)
     
                 # move all other file types to storage
-                files_created = copy_job_results_to_storage(family_name, job_list, storage_root, files_created)
+                files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
     
                 # insert csv to db
                 sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
-                insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_root, files_created)
+                insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
     
     
             # check for finished analyses
