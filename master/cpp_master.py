@@ -205,7 +205,11 @@ spec:
         image: {docker_image}
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
-        command: ["jupyter", "nbconvert","--to","pdf","--execute", "--output-dir","{output_path}", "{notebook_file}"]
+        command: ["/bin/sh", "-c"]
+        args:
+        - >
+          jupyter nbconvert --to notebook --inplace --execute --ExecutePreprocessor.timeout=600 --output-dir {output_path} {notebook_file} &&
+          jupyter nbconvert --to pdf --output-dir {output_path} {notebook_file}
         env:
         - name: ANALYSIS_INPUT_FILE
           value: {analysis_input_file}
@@ -214,10 +218,10 @@ spec:
         resources:
             limits:
               cpu: 1000m
-              memory: 8Gi 
+              memory: 4Gi 
             requests:
-              cpu: 1000m
-              memory: 8Gi 
+              cpu: 200m
+              memory: 2Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -276,10 +280,10 @@ spec:
         resources:
             limits:
               cpu: 1000m
-              memory: 8Gi 
+              memory: 4Gi 
             requests:
-              cpu: 1000m
-              memory: 8Gi 
+              cpu: 200m
+              memory: 2Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -406,7 +410,6 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
     logging.info('Notebook file:' + notebook_file)
 
-
     # if indata is from a previous analysis
     if "indata_analysis_id" in analysis["meta"]:
         indata_analysis_id = analysis["meta"][ "indata_analysis_id"]
@@ -424,11 +427,15 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
     job_number = 0;
     n_jobs = 1
     job_id = f"{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
-    output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
+    output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/notebooks/"
     job_name = f"cpp-worker-job-{job_id}"
 
+    # copy notebook file to output folder (Convertion is done with nbconvert --inplace)
+    copyof_notebook_file = output_path + os.path.basename(notebook_file)
+    os.makedirs(os.path.dirname(copyof_notebook_file), exist_ok=True)
+    shutil.copyfile(notebook_file, copyof_notebook_file)
 
-    job_yaml = make_jupyter_yaml(notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file)
+    job_yaml = make_jupyter_yaml(copyof_notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file)
 
     logging.info("yaml:" + yaml.dump( job_yaml, default_flow_style=False, default_style='' ))
 
@@ -1005,7 +1012,7 @@ def delete_job(sub_analysis_id):
 
             # detele the job
 #            pdb.set_trace()
-            response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea of difference
+            response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
             logging.warning(f"Deleting job {job_name}")
             logging.info(f"Deleting job: {str(response)}")
 

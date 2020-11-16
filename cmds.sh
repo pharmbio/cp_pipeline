@@ -10,6 +10,7 @@ kubectl apply -f /deployments/kubernetes/pharmbio-k8s-prod/k8s-yamls/k8s-deploym
 # create a user in rancher gui
 # download kube config from rancher gui and put in kube_config/config
 kubectl create secret generic cpp-user-kube-config -n cpp --from-file kube_config/ 
+kubectl create secret generic cpp-user-kube-config -n services --from-file kube_config/
 
 # create postgres password secret
 kubectl create secret generic postgres-password -n cpp --from-file password.postgres 
