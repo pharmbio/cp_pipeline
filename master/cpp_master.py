@@ -127,15 +127,15 @@ def make_imgset_csv(imgsets, channel_map):
     header = ""
    
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"FileName_w{ch_nr}_{ch_name},"
+        header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
     header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"PathName_w{ch_nr}_{ch_name},"
+        header += f"PathName_{ch_name},"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"URL_w{ch_nr}_{ch_name},"
+        header += f"URL_{ch_name},"
 
     # remove last comma and add newline
     header = header[:-1]+"\n"
@@ -410,7 +410,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
     logging.info('Notebook file:' + notebook_file)
 
-    # if indata is from a previous analysis
+    # if indata is from a previous analysis (Not implemented)
     if "indata_analysis_id" in analysis["meta"]:
         indata_analysis_id = analysis["meta"][ "indata_analysis_id"]
         input_storage_paths = get_storage_paths_from_analysis_id(cursor, indata_analysis_id)
@@ -863,8 +863,8 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     for file_name in file_list:
         file_name_with_job_specific_path = storage_root['job_specific'] + file_name
         file_list_with_job_specific_path.append(file_name_with_job_specific_path)
-    result['file_list'] = file_list_with_job_specific_path
     result['job_folder'] = storage_root['job_specific']
+    result['file_list'] = file_list_with_job_specific_path
 
 
     
