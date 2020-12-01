@@ -209,7 +209,7 @@ spec:
         args:
         - >
           jupyter nbconvert --to notebook --inplace --execute --ExecutePreprocessor.timeout=600 --output-dir {output_path} {notebook_file} &&
-          jupyter nbconvert --to pdf --no-input --output-dir {output_path} {notebook_file}
+          jupyter nbconvert --to pdf --TemplateExporter.exclude_input=True --no-prompt --output-dir {output_path} {notebook_file}
         env:
         - name: ANALYSIS_INPUT_FILE
           value: {analysis_input_file}
@@ -218,7 +218,7 @@ spec:
         resources:
             limits:
               cpu: 1000m
-              memory: 4Gi 
+              memory: 8Gi 
             requests:
               cpu: 200m
               memory: 2Gi 
