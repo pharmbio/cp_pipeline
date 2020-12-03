@@ -17,13 +17,13 @@ spec:
     spec:
       containers:
       - name: cpp-master
-        image: pharmbio/cpp_master:latest
+        image: ghcr.io/pharmbio/cpp_master:latest
         imagePullPolicy: Always
         command: ["python3", "/cpp/cpp_master.py"]
         resources:
           limits:
             cpu: 1000m
-            memory: 1Gi 
+            memory: 4Gi 
           requests:
             cpu: 1000m
             memory: 1Gi 

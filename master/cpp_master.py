@@ -217,10 +217,10 @@ spec:
           value: {analyis_input_folder}
         resources:
             limits:
-              cpu: 1000m
-              memory: 8Gi 
+              cpu: 2000m
+              memory: 4Gi 
             requests:
-              cpu: 200m
+              cpu: 500m
               memory: 2Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
@@ -266,7 +266,7 @@ spec:
     spec:
       containers:
       - name: cpp-worker
-        image: pharmbio/cpp_worker:v4.0.6
+        image: ghcr.io/pharmbio/cpp_worker:v4.0.6
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
@@ -279,11 +279,11 @@ spec:
           value: {output_path}
         resources:
             limits:
-              cpu: 1000m
-              memory: 4Gi 
+              cpu: 2000m
+              memory: 8Gi 
             requests:
-              cpu: 200m
-              memory: 2Gi 
+              cpu: 1500m
+              memory: 4Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -426,7 +426,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
     random_identifier = generate_random_identifier(8)
     job_number = 0;
     n_jobs = 1
-    job_id = f"{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
+    job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
     output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/notebooks/"
     job_name = f"cpp-worker-job-{job_id}"
 
@@ -451,9 +451,6 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 #    # generate the paths needed
 #    plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, analysis['sub_id'])
 #    storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
-
-
-
 
 
 def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
@@ -536,7 +533,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         for i,imgset_chunk in enumerate(chunk_dict(img_infos, chunk_size)):
 
             # generate names
-            job_id = f"{analysis['sub_id']}-{random_identifier}-{i}-{n_jobs}"
+            job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
             imageset_file = f"/cpp_work/input/cpp-worker-job-{job_id}.csv"
             output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
@@ -750,23 +747,23 @@ def insert_results_to_db(cursor, files_created):
     pass
 
 
-
-
+def create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
+    return f"{analysis_id}-{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
 
 def get_family_job_count_from_job_name(job_name):
-    match = re.match('cpp-worker-job-\d+-\w+-\d+-(\d+)', job_name)
+    match = re.match('cpp-worker-job-\d+-\d+-\w+-\d+-(\d+)', job_name)
     return int(match.groups()[0])
 
 def get_job_family_from_job_name(job_name):
-    match = re.match('(cpp-worker-job-\d+-\w+)', job_name)
+    match = re.match('(cpp-worker-job-\d+-\d+-\w+)', job_name)
     return match.groups()[0]
 
 def get_analysis_sub_id_from_path(path):
-    match = re.match('cpp-worker-job-(\w+)-', path)
+    match = re.match('cpp-worker-job-\d+-(\w+)-', path)
     return int(match.groups()[0])
 
 def get_analysis_sub_id_from_family_name(family_name):
-    match = re.match('cpp-worker-job-(\w+)-', family_name)
+    match = re.match('cpp-worker-job-\d+-(\w+)-', family_name)
     return int(match.groups()[0])
     
 
