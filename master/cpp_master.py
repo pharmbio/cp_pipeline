@@ -533,6 +533,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         for i,imgset_chunk in enumerate(chunk_dict(img_infos, chunk_size)):
 
             # generate names
+            job_number = i
             job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
             imageset_file = f"/cpp_work/input/cpp-worker-job-{job_id}.csv"
             output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
@@ -734,20 +735,7 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
 
 
 
-
-
-def insert_results_to_db(cursor, files_created):
-
-    query = f"""INSERT OR REPLACE INTO 
-                
-
-
-    """
-
-    pass
-
-
-def create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
+def create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs):
     return f"{analysis_id}-{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
 
 def get_family_job_count_from_job_name(job_name):
