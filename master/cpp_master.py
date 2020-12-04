@@ -72,7 +72,7 @@ def all_dependencies_satisfied(analysis, cursor):
         deps = ",".join(map(str, analysis['depends_on_sub_id']))
 
         # there are dependencies, fetch them from the db
-        logging.info('Fetching analysis dependencies.')
+        logging.debug('Fetching analysis dependencies.')
         cursor.execute(f'''
                             SELECT *
                             FROM image_sub_analyses
@@ -279,11 +279,11 @@ spec:
           value: {output_path}
         resources:
             limits:
-              cpu: 2000m
+              cpu: 1000m
               memory: 8Gi 
             requests:
-              cpu: 1500m
-              memory: 4Gi 
+              cpu: 1000m
+              memory: 6Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -746,12 +746,8 @@ def get_job_family_from_job_name(job_name):
     match = re.match('(cpp-worker-job-\d+-\d+-\w+)', job_name)
     return match.groups()[0]
 
-def get_analysis_sub_id_from_path(path):
-    match = re.match('cpp-worker-job-\d+-(\w+)-', path)
-    return int(match.groups()[0])
-
 def get_analysis_sub_id_from_family_name(family_name):
-    match = re.match('cpp-worker-job-\d+-(\w+)-', family_name)
+    match = re.match('cpp-worker-job-\d+-(\d+)-', family_name)
     return int(match.groups()[0])
     
 
@@ -1153,10 +1149,10 @@ def main():
             # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
             for family_name, job_list in finished_families.items():
     
-                # get plate info
-    #            pdb.set_trace()
+                sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
+
                 # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
-                storage_paths = get_storage_paths_from_sub_analysis_id(cursor, get_analysis_sub_id_from_family_name(family_name))
+                storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
 
                 # merge all job csvs into family csv
                 merged_csvs = merge_family_jobs_csv(family_name, job_list)
@@ -1168,7 +1164,6 @@ def main():
                 files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
     
                 # insert csv to db
-                sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
                 insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
     
     
@@ -1185,7 +1180,6 @@ def main():
             if connection:
                 cursor.close()
                 connection.close()
-                logging.warning("PostgreSQL connection is closed")
 
         time.sleep(10)
 
