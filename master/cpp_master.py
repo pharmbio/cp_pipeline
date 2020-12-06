@@ -39,11 +39,27 @@ import shutil
 import datetime
 import time
 
-# start logging
+# set up logging to file
+now = datetime.datetime.now()
+now_string = now.strftime("%Y-%m-%d_%H.%M.%S.%f")
+logfile_name = "/cpp_work/logs/cpp_master." + now_string + ".log"
 logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-            datefmt='%Y-%m-%d:%H:%M:%S',
-            level=logging.INFO)
+                    datefmt='%Y-%m-%d:%H:%M:%S',
+                    level=logging.DEBUG,
+                    filename=logfile_name,
+                    filemode='w')
 
+# define a Handler which writes INFO messages or higher to the sys.stderr
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+
+# set a formater for console
+consol_fmt = logging.Formatter('%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
+# tell the handler to use this format
+console.setFormatter(consol_fmt)
+
+# add the handler to the root logger
+logging.getLogger('').addHandler(console)
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
@@ -736,18 +752,23 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
 
 
 def create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs):
-    return f"{analysis_id}-{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}"
+    return f"{sub_analysis_id}-{random_identifier}-{job_number}-{n_jobs}-{analysis_id}"
 
 def get_family_job_count_from_job_name(job_name):
-    match = re.match('cpp-worker-job-\d+-\d+-\w+-\d+-(\d+)', job_name)
+    match = re.match('cpp-worker-job-\d+-\w+-\d+-(\d+)', job_name)
     return int(match.groups()[0])
 
 def get_job_family_from_job_name(job_name):
-    match = re.match('(cpp-worker-job-\d+-\d+-\w+)', job_name)
+    logging.info("get_job_family_from_job_name, job_name=" + str(job_name))
+    match = re.match('(cpp-worker-job-\d+-\w+)', job_name)
     return match.groups()[0]
 
+def get_analysis_sub_id_from_path(path):
+    match = re.match('cpp-worker-job-(\w+)-', path)
+    return int(match.groups()[0])
+
 def get_analysis_sub_id_from_family_name(family_name):
-    match = re.match('cpp-worker-job-\d+-(\d+)-', family_name)
+    match = re.match('cpp-worker-job-(\w+)-', family_name)
     return int(match.groups()[0])
     
 
@@ -783,6 +804,9 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
     logging.info(query)
     cursor.execute(query)
     plate_info = cursor.fetchone()
+
+    if plate_info is None:
+        logging.error("plate_info is None, sub_id not found, should not be able to happen....")
 
     return plate_info
 
