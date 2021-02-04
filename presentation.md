@@ -8,13 +8,13 @@ Cellprofiler pipelines examples:
 
 Few cellprofiler modules are multithreaded
 
-Dahlö-cppipeline:
+## Dahlö-cppipeline:
 
 - Split plate into a few wells (batches)
 - Parallellize on Kubernetes (Relying on Job names and Kubernetes Scheduler to keep track of finished batches and analyses)
 - Cat individual results into large table
 
-Method:
+### Method:
 
 - Pipeline_master (Python script running in a pod on cluster, reading data from Postgres Imagedb):
   - For each new analyses, split into batches and for each batch create a Kubernetes Job Yaml
@@ -22,25 +22,22 @@ Method:
   - Limit jobs concurrent running with Kubernetes Namespace Quotas
   - Let Kubernetes Scheduler start new job-pods when resources are available
  
-Directories:
+### Directories:
+```
 /share/data/cellprofiler/automation/pipelines
 /share/data/cellprofiler/automation/work
 /share/data/cellprofiler/automation/results
 
-
 /share/mikro/ ( 8.6TB images )
+```
 
-
-Pipeline Gui:
+## Pipeline Gui:
 
 - A GUI for inserting Analyses definitions into the Postgres ImageDB
 
 
-
-Future:
-  Visualize feature results in ImageDB-Gui and Pipeline Gui
-
-  Currentl
+## Future:
+  Visualize image feature results in ImageDB-Gui
 
 
 
