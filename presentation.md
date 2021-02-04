@@ -32,13 +32,13 @@ Few cellprofiler modules are multithreaded
 /share/mikro/ ( 8.6TB images )
 ```
 
-## Pipeline Gui:
+## Pipeline Gui: https://pipelinegui.k8s-prod.pharmb.io/
 
 - A GUI for inserting Analyses definitions into the Postgres ImageDB
 
 
-## Future:
-  Visualize image feature results in ImageDB-Gui
+## Future: 
+  Visualize image feature results in ImageDB-Gui (https://imagedb.k8s-prod.pharmb.io/) Exp3 Vero Zika L2
 
 
 
