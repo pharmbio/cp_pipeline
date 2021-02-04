@@ -1,0 +1,51 @@
+On our shared QNAP Fileserver:
+
+/share/mikro/ ( 8.6TB images )
+
+# For this project
+/share/data/cellprofiler/automation/pipelines
+/share/data/cellprofiler/automation/work
+/share/data/cellprofiler/automation/results
+
+
+Cellprofiler pipelines e.g.:
+
+QC.cppipe
+Illumination_correction.cppipe
+FindFeatures.cppipe
+
+- Few cellprofiler modules are multithreaded
+
+Dahlö-cppipeline:
+
+- Split plate into a few wells (batches)
+- Parallellize on Kubernetes (Relying on Job names and Kubernetes Scheduler to keep track of finished batches and analyses)
+- Cat individual results into large table
+
+Method:
+
+- Pipeline_master (Python script running in a pod on cluster, reading data from Postgres Imagedb):
+  - For each new analyses, split into batches and for each batch create a Kubernetes Job Yaml
+  - Throw all job yamls onto Kubernetes Cluster (Hundreds or Thousands)
+  - Limit jobs concurrent running with Kubernetes Namespace Quotas
+  - Let Kubernetes Scheduler start new job-pods when resources are available
+
+
+Pipeline Gui:
+
+- A GUI for inserting Analyses definitions into the Postgres ImageDB
+
+
+
+Future:
+  Visualize feature results in ImageDB-Gui and Pipeline Gui
+
+  Currentl
+
+
+
+
+
+
+
+
