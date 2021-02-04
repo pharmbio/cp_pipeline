@@ -17,7 +17,7 @@ Few cellprofiler modules are multithreaded
 ### Method:
 
 - cp_pipeline_master.py (Python script running in a pod on cluster, reading data from Postgres Imagedb):
-- some new tables in Imagedb
+- some new tables in Imagedb (https://imagedb-adminer.k8s-prod.pharmb.io/?pgsql=imagedb-pg-postgresql.services.svc.cluster.local&username=postgres&db=imagedb&ns=public)
   - For each new analyses, split into batches and for each batch create a Kubernetes Job Yaml
   - Throw all job yamls onto Kubernetes Cluster (Hundreds or Thousands)
   - Limit jobs concurrent running with Kubernetes Namespace Quotas
