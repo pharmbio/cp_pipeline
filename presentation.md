@@ -1,20 +1,12 @@
-On our shared QNAP Fileserver:
+# Cellprofiler pipelines automation on Kubernetes
 
-/share/mikro/ ( 8.6TB images )
+Cellprofiler pipelines examples:
 
-# For this project
-/share/data/cellprofiler/automation/pipelines
-/share/data/cellprofiler/automation/work
-/share/data/cellprofiler/automation/results
+- QC.cppipe
+- Illumination_correction.cppipe
+- FindFeatures.cppipe
 
-
-Cellprofiler pipelines e.g.:
-
-QC.cppipe
-Illumination_correction.cppipe
-FindFeatures.cppipe
-
-- Few cellprofiler modules are multithreaded
+Few cellprofiler modules are multithreaded
 
 Dahlö-cppipeline:
 
@@ -29,6 +21,14 @@ Method:
   - Throw all job yamls onto Kubernetes Cluster (Hundreds or Thousands)
   - Limit jobs concurrent running with Kubernetes Namespace Quotas
   - Let Kubernetes Scheduler start new job-pods when resources are available
+ 
+Directories:
+/share/data/cellprofiler/automation/pipelines
+/share/data/cellprofiler/automation/work
+/share/data/cellprofiler/automation/results
+
+
+/share/mikro/ ( 8.6TB images )
 
 
 Pipeline Gui:
