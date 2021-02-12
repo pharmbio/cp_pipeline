@@ -214,7 +214,7 @@ apiVersion: batch/v1
 kind: Job 
 metadata:
   name: {job_name}
-  namespace: cpp
+  namespace: {get_namespace()}
   labels:
     pod-type: cpp
     app: cpp-worker
@@ -278,7 +278,7 @@ apiVersion: batch/v1
 kind: Job 
 metadata:
   name: {job_name}
-  namespace: cpp
+  namespace: {get_namespace()}
   labels:
     pod-type: cpp
     app: cpp-worker
@@ -363,6 +363,13 @@ def is_debug():
 
     return debug
 
+def get_namespace():
+    if is_debug():
+        namespace = 'cpp-debug'
+    else:
+        namespace = 'cpp'
+    return namespace
+
 
 def init_kubernetes_connection():
 
@@ -370,18 +377,19 @@ def init_kubernetes_connection():
     kubernetes.config.load_kube_config(str(pathlib.Path.home()) + '/.kube/config')
 
 
-
-
 def load_cpp_config():
 
 
     # fetch db settings
-    configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", "cpp")
+    namespace = get_namespace()
+    logging.info("namespace:" + namespace)
+    
     if is_debug():
         with open('/cpp/configs_debug.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
-    
+   
     else:
+        configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", namespace)
         cpp_config = yaml.load(configmap.data['configs.yaml'], Loader=yaml.FullLoader)
 
         # fetch db secret
@@ -488,7 +496,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
     k8s_batch_api = kubernetes.client.BatchV1Api()
     resp = k8s_batch_api.create_namespaced_job(
-                 body=job_yaml, namespace="cpp")
+                 body=job_yaml, namespace=getNamespace())
     logging.info(f"Deployment created. status='{resp.metadata.name}'")
 
      # when all chunks of the sub analysis are sent in, mark the sub analysis as started
@@ -603,7 +611,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             k8s_batch_api = kubernetes.client.BatchV1Api()
 #            print(dep)
             resp = k8s_batch_api.create_namespaced_job(
-                    body=job_yaml, namespace="cpp")
+                    body=job_yaml, namespace=get_namespace())
             logging.info(f"Deployment created. status='{resp.metadata.name}'")
 
             if job_limit is not None and i >= (job_limit-1):
@@ -620,7 +628,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
-    job_list = k8s_batch_api.list_namespaced_job(namespace="cpp")
+    job_list = k8s_batch_api.list_namespaced_job(namespace=get_namespace())
     
     # filter out all finished jobs
     finished_jobs = {}
@@ -1069,7 +1077,7 @@ def handle_finished_analyses(cursor, connection):
 
 def delete_job(sub_analysis_id):
 
-    namespace = 'cpp'
+    namespace = get_namespace()
     logging.info('Inside delete_job')
     
 
