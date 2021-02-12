@@ -1,4 +1,4 @@
-FROM pharmbio/cellprofiler:v4.0.6
+FROM pharmbio/cellprofiler:v4.0.7
 
 COPY cpp_worker.sh /
 RUN chmod a+x /cpp_worker.sh

@@ -39,28 +39,6 @@ import shutil
 import datetime
 import time
 
-# set up logging to file
-now = datetime.datetime.now()
-now_string = now.strftime("%Y-%m-%d_%H.%M.%S.%f")
-logfile_name = "/cpp_work/logs/cpp_master." + now_string + ".log"
-logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
-                    datefmt='%Y-%m-%d:%H:%M:%S',
-                    level=logging.DEBUG,
-                    filename=logfile_name,
-                    filemode='w')
-
-# define a Handler which writes INFO messages or higher to the sys.stderr
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-
-# set a formater for console
-consol_fmt = logging.Formatter('%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
-# tell the handler to use this format
-console.setFormatter(consol_fmt)
-
-# add the handler to the root logger
-logging.getLogger('').addHandler(console)
-
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
 
@@ -109,6 +87,8 @@ def all_dependencies_satisfied(analysis, cursor):
 # check if all analyses in a list are finished
 def check_analyses_finished(analyses):
 
+        logging.info("Inside check_analyses_finished")
+
         # check all dependencies
         for analysis in analyses:
 
@@ -120,9 +100,8 @@ def check_analyses_finished(analyses):
         return True
 
 
-
 # function for making a cellprofiler formatted csv file
-def make_imgset_csv(imgsets, channel_map):
+def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     
 #    # fetch channel map from db
 #    logging.info('Running query.')
@@ -152,6 +131,20 @@ def make_imgset_csv(imgsets, channel_map):
 
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"URL_{ch_name},"
+
+    # Add Illumination correction headers if needed
+    if use_icf:
+        # First as URL_
+        for ch_nr,ch_name in sorted(channel_map.items()):
+            header += f"URL_ICF_{ch_name},"
+
+        # And then as PathName_
+        for ch_nr,ch_name in sorted(channel_map.items()):
+            header += f"PathName_ICF_{ch_name},"
+        
+         # And then as FileName_
+        for ch_nr,ch_name in sorted(channel_map.items()):
+            header += f"FileName_ICF_{ch_name},"
 
     # remove last comma and add newline
     header = header[:-1]+"\n"
@@ -185,6 +178,21 @@ def make_imgset_csv(imgsets, channel_map):
         # add file urls
         for img in sorted_imgset:
             row += f"file:{img['path']},"
+
+        # add illumination file names, both as URL_ and PATH_ - these are not uniqe per image,
+        # all images with same channel have the same correction image
+        if use_icf:
+            # First as URL
+            for ch_nr,ch_name in sorted(channel_map.items()):
+                row +=  f"file:{storage_paths['full']}/ICF_{ch_name}.npy,"
+            
+            # Also as PathName_
+            for ch_nr,ch_name in sorted(channel_map.items()):
+                row +=  f"{storage_paths['full']},"
+
+            # Also as FileName_
+            for ch_nr,ch_name in sorted(channel_map.items()):
+                row +=  f"ICF_{ch_name}.npy,"
 
         # remove last comma and add a newline before adding it to the content
         content += row[:-1] + "\n"
@@ -280,9 +288,30 @@ spec:
   backoffLimit: 0
   template:
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - brolin
+               # - klose-vm-worker
+               # - limpar
+#      affinity:
+#        nodeAffinity:
+#          requiredDuringSchedulingIgnoredDuringExecution:
+#            - labelSelector:
+#                matchExpressions:
+#                - key: kubernetes.io/hostname
+#                  operator: In
+#                  values:
+#                  - klose-vm-worker
+#                  - limpar
       containers:
       - name: cpp-worker
-        image: ghcr.io/pharmbio/cpp_worker:v4.0.6
+        image: ghcr.io/pharmbio/cpp_worker:v4.0.7
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
@@ -298,7 +327,7 @@ spec:
               cpu: 1000m
               memory: 8Gi 
             requests:
-              cpu: 1000m
+              cpu: 300m
               memory: 6Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
@@ -329,6 +358,8 @@ def is_debug():
     debug = False
     if os.environ.get('DEBUG'):
         debug = True
+    
+    #logging.info("debug=" + str(debug))
 
     return debug
 
@@ -543,6 +574,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         n_jobs_unrounded = n_imgsets / chunk_size
         n_jobs = math.ceil(n_jobs_unrounded)
 
+        # get common output for all sub analysis
+        storage_paths = get_storage_paths_from_analysis_id(cursor, analysis_id)
+        # Make sure output dir exists
+        os.makedirs(f"{storage_paths['full']}", exist_ok=True)
+
         
         # create chunks and submit as separate jobs
         random_identifier = generate_random_identifier(8)
@@ -556,8 +592,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             job_name = f"cpp-worker-job-{job_id}"
             job_yaml = make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id)
 
-            # generate cellprofiler imgset file for this imgset
-            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map)
+            # Check if icf headers should be added to imgset csv file, default is False
+            use_icf = cellprofiler_settings.get('use_icf', False)
+            logging.info("use_icf" + str(use_icf))
+             # generate cellprofiler imgset file for this imgset
+            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
             with open(imageset_file, 'w') as imageset_csv:
                 imageset_csv.write(imageset_content)
             
@@ -658,7 +697,6 @@ def merge_family_jobs_csv_old(family_name, job_list):
         job_path = f"/cpp_work/output/{job['metadata']['name']}"
         for csv_file in pathlib.Path(job_path).rglob("*.csv"):
 
-
             filename = str(csv_file).replace(job_path+'/', '')
 
             # init the file entry if needed
@@ -686,6 +724,10 @@ def merge_family_jobs_csv_old(family_name, job_list):
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
 def merge_family_jobs_csv(family_name, job_list):
 
+    logging.debug("Inside merge_family_jobs_csv")
+
+    logging.debug("job_list:" + str(job_list))
+
     # init
     merged_csvs = {}
 
@@ -698,6 +740,8 @@ def merge_family_jobs_csv(family_name, job_list):
 
             # keep only the path relative to the job_path
             filename = str(csv_file).replace(job_path+'/', '')
+
+            logging.debug("filename" + str(filename))
 
             # init the file entry if needed
             if filename not in merged_csvs:
@@ -714,13 +758,16 @@ def merge_family_jobs_csv(family_name, job_list):
                 for row in csv_file_handle:
                     merged_csvs[filename]['rows'].append(row)
 
+    logging.debug("done merge_family_jobs_csv")
 
     return merged_csvs
 
 
 
-# goes through all the non-csv files of a family of job and copies the result to the result folder
+# goes through all the non-csv filescsv of a family of job and copies the result to the result folder
 def copy_job_results_to_storage(family_name, job_list, storage_root, files_created):
+
+    logging.debug("inside copy_job_results_to_storage")
 
     # for each job in the family
     for job in job_list:
@@ -729,8 +776,11 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
         job_path = f"/cpp_work/output/{job['metadata']['name']}"
         for result_file in pathlib.Path(job_path).rglob("*"):
 
+            logging.debug("copy file: " + str(result_file))
+
             # exclude files with these extensions
             if result_file.suffix in ['.csv'] or pathlib.Path.is_dir(result_file):
+                logging.debug("continue")
                 continue
 
             # keep only the path relative to the job_path
@@ -746,6 +796,10 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
             # remember the file
             files_created.append(f"{filename}")
 
+            logging.debug("done copy file: " + str(filename))
+
+
+    logging.debug("done copy_job_results_to_storage")
 
     return files_created
 
@@ -794,16 +848,24 @@ def get_analysis_info(cursor, analysis_id):
 def get_sub_analysis_info(cursor, analysis_sub_id):
 
     # fetch all images belonging to the plate acquisition
-    logging.info('Fetching plate info from view.')
+    logging.info('Fetching plate info from view1')
     query = f"""
                         SELECT *
                         FROM image_sub_analyses_v1
-                        WHERE sub_id='{analysis_sub_id}'
+                        WHERE sub_id=%s
                        """ # also NOT IN (select * from images_analysis where analysed=None) or something
 
     logging.info(query)
-    cursor.execute(query)
-    plate_info = cursor.fetchone()
+
+    cpp_config = load_cpp_config()
+    connection, cursor2 = connect_db(cpp_config)
+
+    cursor2.execute(query, (analysis_sub_id,))
+    plate_info = cursor2.fetchone()
+    cursor2.close()
+    connection.close()
+
+    logging.info("plate_info:" + str(plate_info))
 
     if plate_info is None:
         logging.error("plate_info is None, sub_id not found, should not be able to happen....")
@@ -817,12 +879,15 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
 
 def write_csv_to_storage(merged_csvs, storage_root):
 
+    logging.debug("Inside write_csv_to_storage")
+
     # remember created files
     files_created = []
 
     # loop over all csv files in the dict
     for csv_filename in merged_csvs:
 
+        logging.debug("csv_filename" + csv_filename)
 
         # make dir if needed
         subdir_name = os.path.dirname(csv_filename)
@@ -830,12 +895,16 @@ def write_csv_to_storage(merged_csvs, storage_root):
 
         with open(f"{storage_root['full']}/{csv_filename}", 'w', newline='') as csv_file_handle:
             #pdb.set_trace()
+            logging.debug("inside_write" )
             csv_file_handle.write((merged_csvs[csv_filename]['header']))
             for line in merged_csvs[csv_filename]['rows']:
                 csv_file_handle.write(line)
+            
+            logging.debug("write done" )
 
         files_created.append(f"{csv_filename}")
 
+    logging.debug("Done write_csv_to_storage")
 
     return files_created
 
@@ -858,6 +927,8 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     if not result:
         result = {}
 
+    logging.debug("result:" + str(result))
+
     ### include the job specific folder name into file path
 
     # martin way
@@ -872,15 +943,17 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     result['file_list'] = file_list_with_job_specific_path
 
 
-    
     # maybe in the future we should do a select first and 
     query = f"""UPDATE image_sub_analyses
                 SET result=%s,
                     finish=%s
                 WHERE sub_id=%s
             """
+    logging.debug("query:" + str(query))
     cursor.execute(query, [json.dumps(result), datetime.datetime.now(), sub_analysis_id])
+    logging.debug("Before commit")
     connection.commit()
+    logging.debug("Commited")
 
     delete_job(sub_analysis_id)
     
@@ -1017,6 +1090,7 @@ def delete_job(sub_analysis_id):
 
             # detele the job
 #            pdb.set_trace()
+            logging.debug("Delete job:" + job_name)
             response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
             logging.warning(f"Deleting job {job_name}")
             logging.info(f"Deleting job: {str(response)}")
@@ -1127,6 +1201,8 @@ def get_storage_paths_from_analysis_id(cursor, analysis_id):
 
 def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
+    logging.debug("Inside get_storage_paths_from_sub_analysis_id")
+
     analysis_info = get_sub_analysis_info(cursor, sub_analysis_id)
 
     plate_barcode = analysis_info["plate_barcode"]
@@ -1142,70 +1218,104 @@ def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
 def main():
 
-    first_reset = True
-    while True:
+    try:
 
-        # init
-        connection = None
-        cursor = None
-    
-        try:
-    
-            if is_debug():
-                job_limit = None
-            else:
-                job_limit = None
+        # set up logging to file
+        now = datetime.datetime.now()
+        now_string = now.strftime("%Y-%m-%d_%H.%M.%S.%f")
+        is_debug_version = ""
+        if is_debug():
+            is_debug_version = "debug."
+        logfile_name = "/cpp_work/logs/cpp_master." + is_debug_version + now_string + ".log"
+        logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+                            datefmt='%Y-%m-%d:%H:%M:%S',
+                            level=logging.DEBUG,
+                            filename=logfile_name,
+                            filemode='w')
+
+        # define a Handler which writes INFO messages or higher to the sys.stderr
+        console = logging.StreamHandler()
+        console.setLevel(logging.INFO)
+
+        # set a formater for console
+        consol_fmt = logging.Formatter('%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
+        # tell the handler to use this format
+        console.setFormatter(consol_fmt)
+
+        # add the handler to the root logger
+        logging.getLogger('').addHandler(console)
+
+        first_reset = True
+        while True:
+
+            # init
+            connection = None
+            cursor = None
+        
+            try:
+        
+                if is_debug():
+                    job_limit = None
+                else:
+                    job_limit = None
+                
+                init_kubernetes_connection()
+                cpp_config = load_cpp_config()
+                connection, cursor = connect_db(cpp_config)
+
+
+                if len(sys.argv) > 1 and sys.argv[1] == "reset" and first_reset:
+                    reset_debug_jobs(analysis_id=4, sub_analysis_id=4, connection=connection, cursor=cursor)
+                    first_reset = False
+                    logging.info("Resetting debug jobs.")
+
+                handle_new_jobs(cursor, connection, job_limit = job_limit)
             
-            init_kubernetes_connection()
-            cpp_config = load_cpp_config()
-            connection, cursor = connect_db(cpp_config)
+                finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
+                
+                # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
+                for family_name, job_list in finished_families.items():
+        
+                    sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
 
+                    # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
+                    storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
 
-            if len(sys.argv) > 1 and sys.argv[1] == "reset" and first_reset:
-                reset_debug_jobs(analysis_id=4, sub_analysis_id=4, connection=connection, cursor=cursor)
-                first_reset = False
-                logging.info("Resetting debug jobs.")
-
-            handle_new_jobs(cursor, connection, job_limit = job_limit)
-           
-            finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
+                    # merge all job csvs into family csv
+                    merged_csvs = merge_family_jobs_csv(family_name, job_list)
+        #            pdb.set_trace()
+                    # write csv to storage location
+                    files_created = write_csv_to_storage(merged_csvs, storage_paths)
+                    logging.debug("files_created:" + str(files_created))
+        
+                    # move all other file types to storage
+                    files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
+                    logging.debug("files_created:" + str(files_created))
+        
+                    # insert csv to db
+                    insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
+        
+        
+                # check for finished analyses
+                handle_finished_analyses(cursor, connection)
             
-            # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
-            for family_name, job_list in finished_families.items():
-    
-                sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
+            
+            # catch db errors
+            except (psycopg2.Error) as error:
+                logging.exception(error)
+            
+            finally:
+                #closing database connection
+                if connection:
+                    cursor.close()
+                    connection.close()
 
-                # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
-                storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
+            time.sleep(10)
 
-                # merge all job csvs into family csv
-                merged_csvs = merge_family_jobs_csv(family_name, job_list)
-    #            pdb.set_trace()
-                # write csv to storage location
-                files_created = write_csv_to_storage(merged_csvs, storage_paths)
-    
-                # move all other file types to storage
-                files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
-    
-                # insert csv to db
-                insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
-    
-    
-            # check for finished analyses
-            handle_finished_analyses(cursor, connection)
-        
-        
-        # catch db errors
-        except (psycopg2.Error) as error:
-            logging.exception(error)
-        
-        finally:
-            #closing database connection
-            if connection:
-                cursor.close()
-                connection.close()
-
-        time.sleep(10)
+    # Catch all errors
+    except Exception as e:
+        logging.error(traceback.format_exc())
+        # Logs the error appropriately. 
 
 
 if __name__ == "__main__":
