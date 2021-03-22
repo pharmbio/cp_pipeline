@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: cpp-master
-        image: ghcr.io/pharmbio/cpp_master:latest
+        image: ghcr.io/pharmbio/cpp_master:stable
         imagePullPolicy: Always
         command: ["python3", "/cpp/cpp_master.py"]
         resources:

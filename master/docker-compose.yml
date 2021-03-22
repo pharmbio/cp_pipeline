@@ -10,7 +10,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cpp-master
+    container_name: cpp-master:latest
     restart: "no"
     environment:
       - DEBUG=1

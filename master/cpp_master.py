@@ -272,6 +272,11 @@ spec:
 
 def make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
 
+    if is_debug():
+       docker_image="ghcr.io/pharmbio/cpp_worker:v4.0.7-latest"
+    else:
+       docker_image="ghcr.io/pharmbio/cpp_worker:v4.0.7-stable"
+
    return yaml.safe_load(f"""
 
 apiVersion: batch/v1
@@ -311,7 +316,7 @@ spec:
 #                  - limpar
       containers:
       - name: cpp-worker
-        image: ghcr.io/pharmbio/cpp_worker:v4.0.7-debug
+        image: {docker_image}
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
