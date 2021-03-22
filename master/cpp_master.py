@@ -270,7 +270,7 @@ spec:
 
 
 
-def make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id):
+def make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
 
    return yaml.safe_load(f"""
 
@@ -311,7 +311,7 @@ spec:
 #                  - limpar
       containers:
       - name: cpp-worker
-        image: ghcr.io/pharmbio/cpp_worker:v4.0.7
+        image: ghcr.io/pharmbio/cpp_worker:v4.0.7-debug
         imagePullPolicy: Always
         #command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
@@ -322,6 +322,8 @@ spec:
           value: {imageset_file}
         - name: OUTPUT_PATH
           value: {output_path}
+        - name: JOB_TIMEOUT
+          value: {job_timeout}
         resources:
             limits:
               cpu: 1000m
@@ -348,8 +350,6 @@ spec:
         secret:
           secretName: cpp-user-kube-config
 """)
-
-
 
 def is_debug():
     """
@@ -538,6 +538,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                             SELECT *
                             FROM images_all_view
                             WHERE plate_acquisition_id='{analysis['plate_acquisition_id']}'
+                            ORDER BY timepoint, well, site, channel
                            """ # also NOT IN (select * from images_analysis where analysed=None) or something
         cursor.execute(query)
         imgs = cursor.fetchall()
@@ -598,7 +599,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             imageset_file = f"/cpp_work/input/cpp-worker-job-{job_id}.csv"
             output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
-            job_yaml = make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id)
+            job_timeout = cellprofiler_settings.get('job_timeout', "10800")
+            job_yaml = make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
 
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = cellprofiler_settings.get('use_icf', False)
