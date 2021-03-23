@@ -277,7 +277,7 @@ def make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, 
     else:
        docker_image="ghcr.io/pharmbio/cpp_worker:v4.0.7-stable"
 
-   return yaml.safe_load(f"""
+    return yaml.safe_load(f"""
 
 apiVersion: batch/v1
 kind: Job 
@@ -328,7 +328,7 @@ spec:
         - name: OUTPUT_PATH
           value: {output_path}
         - name: JOB_TIMEOUT
-          value: {job_timeout}
+          value: "{job_timeout}"
         resources:
             limits:
               cpu: 1000m
