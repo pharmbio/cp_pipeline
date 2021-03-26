@@ -335,7 +335,7 @@ spec:
               memory: 8Gi 
             requests:
               cpu: 300m
-              memory: 6Gi 
+              memory: 2Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -437,6 +437,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                         SELECT *
                         FROM image_sub_analyses
                         WHERE start IS NULL
+                        ORDER by id 
                        ''')
     analyses = cursor.fetchall()
 
@@ -444,6 +445,10 @@ def handle_new_jobs(cursor, connection, job_limit=None):
     for analysis in analyses:
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
+            continue
+
+        # Check if kubernetes job queue is empty if not skip
+        if not is_kubernetes_job_queue_empty():
             continue
 
         # check the analysis type and process by analysis specific function
@@ -628,6 +633,29 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         # when all chunks of the sub analysis are sent in, mark the sub analysis as started
         mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
         mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+
+
+def is_kubernetes_job_queue_empty():
+
+    logging.info("Inside is_kubernetes_job_queue_empty");
+
+    # list all jobs in namespace
+    k8s_batch_api = kubernetes.client.BatchV1Api()
+    job_list = k8s_batch_api.list_namespaced_job(namespace=get_namespace())
+
+    # filter out all finished jobs
+    # logging.info("job-list len" + str(len(job_list.items)))
+
+    is_queue_empty = True
+    for job in job_list.items:
+      if job.status.start_time is None:
+        is_queue_empty = False
+        logging.info("Queue is not empty, exit loop")
+        break
+
+    logging.info("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
+    return is_queue_empty
+
 
 
 
