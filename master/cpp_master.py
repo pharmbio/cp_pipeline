@@ -437,7 +437,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                         SELECT *
                         FROM image_sub_analyses
                         WHERE start IS NULL
-                        ORDER by id 
+                        ORDER by sub_id 
                        ''')
     analyses = cursor.fetchall()
 

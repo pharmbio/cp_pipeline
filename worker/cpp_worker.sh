@@ -18,9 +18,7 @@ cellprofiler \
 # Set exit code to 0 if job was exited due to timeout
 exit_code=$?
 if [ $exit_code -eq 124 ]; then
+   echo "JOB_KILLED_BY_TIMEOUT"
    exit_code=0
 fi
 exit $exit_code
-
-
-
