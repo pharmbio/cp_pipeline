@@ -441,7 +441,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                        ''')
     analyses = cursor.fetchall()
 
-   # for all unstarted analyses 
+    # for all unstarted analyses 
     for analysis in analyses:
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
@@ -1291,7 +1291,7 @@ def main():
         first_reset = True
         while True:
 
-            # init
+            # reset to avoid stale connections
             connection = None
             cursor = None
         
@@ -1301,17 +1301,20 @@ def main():
                     job_limit = None
                 else:
                     job_limit = None
-                
+
+                # init connections
                 init_kubernetes_connection()
                 cpp_config = load_cpp_config()
                 connection, cursor = connect_db(cpp_config)
 
 
+                # debug function to reset specified jobs to just-submitted state
                 if len(sys.argv) > 1 and sys.argv[1] == "reset" and first_reset:
                     reset_debug_jobs(analysis_id=4, sub_analysis_id=4, connection=connection, cursor=cursor)
                     first_reset = False
                     logging.info("Resetting debug jobs.")
 
+                
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
             
                 finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
