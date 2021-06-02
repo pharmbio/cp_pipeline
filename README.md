@@ -1,6 +1,6 @@
 # Continuous Cellpainting - Cellprofiler pipelines automation on Kubernetes
 
-![cp_pipeline overview](analysis_pipeline_overview.png)
+![cp_pipeline overview](analysis_pipeline_overview.jpg)
 
 
 Cellprofiler pipelines examples:
