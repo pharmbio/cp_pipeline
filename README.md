@@ -1,6 +1,6 @@
 # Continuous Cellpainting - Cellprofiler pipelines automation on Kubernetes
 
-This component handles the running of jobs on Kubernetes. It polls the database for non-started analyses that have completed plate acquisitions available. The analyses are sent as jobs to the Kubernetes cluster and once they are finished the results will be collected and stored at the same location as the images and the database will be updated and mark the analysis as finished. 
+This component handles the running of jobs on Kubernetes and collecting the results. It polls the database for non-started analyses that have completed plate acquisitions available. The analyses are sent as jobs to the Kubernetes cluster and once they are finished the results will be collected and stored at the same location as the images and the database will be updated and mark the analysis as finished. 
 
 ![cp_pipeline overview](analysis_pipeline_overview.jpg)
 
@@ -17,8 +17,10 @@ This component handles the running of jobs on Kubernetes. It polls the database 
 1. Sleep for a while before next iteration.
 
 ## Pipeline Gui: https://pipelinegui.k8s-prod.pharmb.io/
-
-- A GUI for inserting Analyses definitions into the Postgres ImageDB
+- A GUI for inserting analyses definitions into the Postgres ImageDB
+- Schedule new analyses for plate acquisitions.
+- Monitor planned, running and finished analyses.
+- Links to produced result files.
 
 
 ## Future: 
