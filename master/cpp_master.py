@@ -11,9 +11,7 @@
 # * store the imgset file as a configmap for each job?
 # * fix the job spec yaml, the command and mount paths (root vs user etc)
 # * make sure the worker container image exists and works
-
-
-
+# * build csv straight to file to reduce memory problems, need at least 32MB at moment
 
 
 
@@ -270,12 +268,12 @@ spec:
 
 
 
-def make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
+def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
 
     if is_debug():
-       docker_image="ghcr.io/pharmbio/cpp_worker:v4.0.7-latest"
+       docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-latest"
     else:
-       docker_image="ghcr.io/pharmbio/cpp_worker:v4.0.7-stable"
+       docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-stable"
 
     return yaml.safe_load(f"""
 
@@ -290,7 +288,7 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
 spec:
-  backoffLimit: 0
+  backoffLimit: 10
   template:
     spec:
       affinity:
@@ -302,18 +300,9 @@ spec:
                 operator: In
                 values:
                 - brolin
-               # - klose-vm-worker
-               # - limpar
-#      affinity:
-#        nodeAffinity:
-#          requiredDuringSchedulingIgnoredDuringExecution:
-#            - labelSelector:
-#                matchExpressions:
-#                - key: kubernetes.io/hostname
-#                  operator: In
-#                  values:
-#                  - klose-vm-worker
-#                  - limpar
+                #- klose-vm-worker
+                #- limpar
+                #- messi-vm-worker
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -343,7 +332,10 @@ spec:
           name: kube-config
         - mountPath: /cpp_work
           name: cpp
+        - mountPath: /share/data/external-datasets
+          name: externalimagefiles
       restartPolicy: Never
+      backoffLimit: 32
       volumes:
       - name: mikroimages
         persistentVolumeClaim:
@@ -354,6 +346,10 @@ spec:
       - name: kube-config
         secret:
           secretName: cpp-user-kube-config
+      - name: externalimagefiles
+        persistentVolumeClaim:
+          claimName: external-images-pvc
+
 """)
 
 def is_debug():
@@ -576,6 +572,13 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         except KeyError:
             logging.error(f"Unable to get cellprofiler settings for analysis: sub_id={sub_analysis_id}")
 
+        # get cellprofiler-version
+        try:
+            cellprofiler_version = cellprofiler_settings['cellprofiler_version']
+        except KeyError:
+            logging.error(f"Unable to get cellprofiler_version details from analysis entry: sub_id={sub_analysis_id}")
+            cellprofiler_version = "v4.0.7"
+
         # check if all imgsets should be in the same job
         try:
             chunk_size = cellprofiler_settings['batch_size'] 
@@ -610,7 +613,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
             job_timeout = cellprofiler_settings.get('job_timeout', "10800")
-            job_yaml = make_cellprofiler_yaml(pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
+            job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
 
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = cellprofiler_settings.get('use_icf', False)
@@ -856,7 +859,6 @@ def get_family_job_count_from_job_name(job_name):
     return int(match.groups()[0])
 
 def get_job_family_from_job_name(job_name):
-    logging.info("get_job_family_from_job_name, job_name=" + str(job_name))
     match = re.match('(cpp-worker-job-\d+-\w+)', job_name)
     return match.groups()[0]
 
@@ -1000,10 +1002,6 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
 
     delete_job(sub_analysis_id)
     
-
-
-
-
 
 
 # go through unfinished analyses and wrap them up if possible
@@ -1244,7 +1242,7 @@ def get_storage_paths_from_analysis_id(cursor, analysis_id):
 
 def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
-    logging.debug("Inside get_storage_paths_from_sub_analysis_id")
+    logging.info("Inside get_storage_paths_from_sub_analysis_id")
 
     analysis_info = get_sub_analysis_info(cursor, sub_analysis_id)
 
@@ -1272,7 +1270,7 @@ def main():
         logfile_name = "/cpp_work/logs/cpp_master." + is_debug_version + now_string + ".log"
         logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                             datefmt='%Y-%m-%d:%H:%M:%S',
-                            level=logging.DEBUG,
+                            level=logging.INFO,
                             filename=logfile_name,
                             filemode='w')
 

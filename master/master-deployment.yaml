@@ -22,11 +22,11 @@ spec:
         command: ["python3", "/cpp/cpp_master.py"]
         resources:
           limits:
-            cpu: 1000m
-            memory: 16Gi 
+            cpu: 2000m
+            memory: 32Gi 
           requests:
             cpu: 1000m
-            memory: 1Gi 
+            memory: 2Gi 
         volumeMounts:
         - mountPath: /home/user/.kube/
           name: kube-config
