@@ -1,40 +1,26 @@
 # Continuous Cellpainting - Cellprofiler pipelines automation on Kubernetes
 
-Cellprofiler pipelines examples:
+This component handles the running of jobs on Kubernetes and collecting the results. It polls the database for non-started analyses that have completed plate acquisitions available. The analyses are sent as jobs to the Kubernetes cluster and once they are finished the results will be collected and stored at the same location as the images and the database will be updated and mark the analysis as finished. 
 
-- QC.cppipe
-- Illumination_correction.cppipe
-- FindFeatures.cppipe
+![cp_pipeline overview](analysis_pipeline_overview.jpg)
 
-Few cellprofiler modules are multithreaded
+### In a nutshell
 
-## Dahlö-cppipeline:
-
-- Split plate into a few wells (batches)
-- Parallellize on Kubernetes (Relying on Job names and Kubernetes Scheduler to keep track of finished batches and analyses)
-- Cat individual results into large table
-
-### Method:
-
-- cp_pipeline_master.py (Python script running in a pod on cluster, reading data from Postgres Imagedb):
-- some new tables in Imagedb (https://imagedb-adminer.k8s-prod.pharmb.io/?pgsql=imagedb-pg-postgresql.services.svc.cluster.local&username=postgres&db=imagedb&ns=public)
-  - For each new analyses, split into batches and for each batch create a Kubernetes Job Yaml
-  - Throw all job yamls onto Kubernetes Cluster (Hundreds or Thousands)
-  - Limit jobs concurrent running with Kubernetes Namespace Quotas
-  - Let Kubernetes Scheduler start new job-pods when resources are available
- 
-### Directories:
-```
-/share/data/cellprofiler/automation/pipelines
-/share/data/cellprofiler/automation/work
-/share/data/cellprofiler/automation/results
-
-/share/mikro/ ( 8.6TB images )
-```
+1. Get all non-started analyses.
+1. Check if their plate acquisition is completed.
+    1. If so, go through the specified analysis and submit all steps. If not, skip it for now.
+    1. If a step is to be split into smaller batches, submit as 1 job per batch.
+    1. If not, submit as 1 job for all images in plate acquisition.
+1. Check if there are any started analyses that have not finished yet.
+    1. If so, check if all jobs belonging to the analysis are finished. If not, skip it for now.
+    1. If so, copy the results to the plate acquisition folder on the NAS and merge all result files from batched jobs.
+1. Sleep for a while before next iteration.
 
 ## Pipeline Gui: https://pipelinegui.k8s-prod.pharmb.io/
-
-- A GUI for inserting Analyses definitions into the Postgres ImageDB
+- A GUI for inserting analyses definitions into the Postgres ImageDB
+- Schedule new analyses for plate acquisitions.
+- Monitor planned, running and finished analyses.
+- Links to produced result files.
 
 
 ## Future: 
