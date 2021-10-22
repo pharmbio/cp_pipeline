@@ -219,7 +219,6 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
 spec:
-  backoffLimit: 0
   template:
     spec:
       containers:
@@ -270,6 +269,9 @@ spec:
 
 def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
 
+    if cellprofiler_version is None:
+        cellprofiler_version = "v4.0.7"
+
     if is_debug():
        docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-latest"
     else:
@@ -288,7 +290,6 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
 spec:
-  backoffLimit: 10
   template:
     spec:
       affinity:
@@ -300,9 +301,9 @@ spec:
                 operator: In
                 values:
                 - brolin
-                #- klose-vm-worker
-                #- limpar
-                #- messi-vm-worker
+               # - klose-vm-worker
+               # - limpar
+               # - messi-vm-worker
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -335,7 +336,6 @@ spec:
         - mountPath: /share/data/external-datasets
           name: externalimagefiles
       restartPolicy: Never
-      backoffLimit: 32
       volumes:
       - name: mikroimages
         persistentVolumeClaim:
@@ -574,10 +574,10 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
         # get cellprofiler-version
         try:
-            cellprofiler_version = cellprofiler_settings['cellprofiler_version']
+            cellprofiler_version = cellprofiler_settings['cp_version']
         except KeyError:
             logging.error(f"Unable to get cellprofiler_version details from analysis entry: sub_id={sub_analysis_id}")
-            cellprofiler_version = "v4.0.7"
+            cellprofiler_version = None
 
         # check if all imgsets should be in the same job
         try:

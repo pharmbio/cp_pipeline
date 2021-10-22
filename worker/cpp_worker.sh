@@ -13,7 +13,7 @@ cellprofiler \
 -c \
 -p $PIPELINE_FILE \
 --data-file $IMAGESET_FILE \
--o $OUTPUT_PATH
+-o $OUTPUT_PATH \
 --plugins-directory /CellProfiler/plugins
 
 # Set exit code to 0 if job was exited due to timeout
