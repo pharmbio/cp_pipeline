@@ -319,6 +319,8 @@ spec:
           value: {output_path}
         - name: JOB_TIMEOUT
           value: "{job_timeout}"
+        - name: OMP_NUM_THREADS # This is to prevent multithreading of cellprofiler
+          value: 1
         resources:
             limits:
               cpu: 1000m
