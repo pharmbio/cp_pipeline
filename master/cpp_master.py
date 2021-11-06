@@ -320,7 +320,7 @@ spec:
         - name: JOB_TIMEOUT
           value: "{job_timeout}"
         - name: OMP_NUM_THREADS # This is to prevent multithreading of cellprofiler
-          value: 1
+          value: "1"
         resources:
             limits:
               cpu: 1000m
@@ -490,7 +490,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
     job_number = 0;
     n_jobs = 1
     job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
-    output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/notebooks/"
+    output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/notebooks/"
     job_name = f"cpp-worker-job-{job_id}"
 
     # copy notebook file to output folder (Convertion is done with nbconvert --inplace)
@@ -611,8 +611,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             # generate names
             job_number = i
             job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
-            imageset_file = f"/cpp_work/input/cpp-worker-job-{job_id}.csv"
-            output_path = f"/cpp_work/output/cpp-worker-job-{job_id}/"
+            imageset_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.csv"
+            output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
             job_timeout = cellprofiler_settings.get('job_timeout', "10800")
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
@@ -622,6 +622,10 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             logging.info("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
             imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
+            
+            # create a folder for the file if needed
+            os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
+            # write csv
             with open(imageset_file, 'w') as imageset_csv:
                 imageset_csv.write(imageset_content)
             
@@ -729,45 +733,6 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 
     
 
-
-
-# goes through all jobs of a family i.e. merges the csvs with the same names into
-# a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
-def merge_family_jobs_csv_old(family_name, job_list):
-
-    # init
-    merged_csvs = {}
-
-    # for each job in the family
-    for job in job_list:
-        
-        # fetch all csv files in the job folder
-        job_path = f"/cpp_work/output/{job['metadata']['name']}"
-        for csv_file in pathlib.Path(job_path).rglob("*.csv"):
-
-            filename = str(csv_file).replace(job_path+'/', '')
-
-            # init the file entry if needed
-            if filename not in merged_csvs:
-                merged_csvs[filename] = {}
-                merged_csvs[filename]['rows'] = []
-
-            # read the csv
-            with open(csv_file, 'r') as csv_file_handle:
-                reader = csv.reader(csv_file_handle)
-
-                # svae the first row as header
-                merged_csvs[filename]['header'] = reader.__next__()
-
-                # append the remaining rows as content
-                for row in reader:
-                    merged_csvs[filename]['rows'].append(row)
-
-
-    return merged_csvs
-
-    
-
 # goes through all jobs of a family i.e. merges the csvs with the same names into
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
 def merge_family_jobs_csv(family_name, job_list):
@@ -783,7 +748,8 @@ def merge_family_jobs_csv(family_name, job_list):
     for job in job_list:
         
         # fetch all csv files in the job folder
-        job_path = f"/cpp_work/output/{job['metadata']['name']}"
+        analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
+        job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
         for csv_file in pathlib.Path(job_path).rglob("*.csv"):
 
             # keep only the path relative to the job_path
@@ -821,7 +787,8 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
     for job in job_list:
         
         # fetch all files in the job folder
-        job_path = f"/cpp_work/output/{job['metadata']['name']}"
+        analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
+        job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
         for result_file in pathlib.Path(job_path).rglob("*"):
 
             logging.debug("copy file: " + str(result_file))
