@@ -31,8 +31,8 @@ spec:
         command: ["python3", "/cpp/cpp_master.py"]
         resources:
           limits:
-            cpu: 2000m
-            memory: 32Gi 
+            cpu: 4000m
+            memory: 64Gi 
           requests:
             cpu: 1000m
             memory: 2Gi 

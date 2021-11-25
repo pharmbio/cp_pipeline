@@ -518,6 +518,8 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
 def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
+        logging.info("analysis: " + str(analysis))
+
         analysis_id = analysis["analysis_id"]
         sub_analysis_id = analysis["sub_id"]
 
@@ -539,16 +541,42 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         if len(channel_map) == 0:
             raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
+        # get analysis settings
+        try:
+            analysis_meta = analysis['meta']
+        except KeyError:
+            logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
+
+        # check if sites filter is included
+        site_filter = None
+        if 'site_filter' in analysis_meta:
+            site_filter = list(analysis_meta['site_filter'])
+
+        # check if well filter is included
+        well_filter = None
+        if 'well_filter' in analysis_meta:
+            well_filter = list(analysis_meta['well_filter'])
+
+
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
         
-        query = f"""
-                            SELECT *
-                            FROM images_all_view
-                            WHERE plate_acquisition_id='{analysis['plate_acquisition_id']}'
-                            ORDER BY timepoint, well, site, channel
-                           """ # also NOT IN (select * from images_analysis where analysed=None) or something
-        cursor.execute(query)
+        query = ("SELECT *"
+                 " FROM images_all_view"
+                 " WHERE plate_acquisition_id=%s")
+
+        if site_filter:
+            query += " AND site IN {sites} ".format(sites=tuple(site_filter))
+
+        if well_filter:
+            query += " AND well IN {wells} ".format(wells=tuple(well_filter))
+
+
+        query += " ORDER BY timepoint, well, site, channel"
+
+        logging.info("query: " + query)
+        
+        cursor.execute(query, (analysis['plate_acquisition_id'],))
         imgs = cursor.fetchall()
 
         imgsets = {}
@@ -568,29 +596,23 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                 img_infos[imgset_id] = [img]
 
 
-        # get analysis settings
-        try:
-            cellprofiler_settings = analysis['meta']
-        except KeyError:
-            logging.error(f"Unable to get cellprofiler settings for analysis: sub_id={sub_analysis_id}")
-
         # get cellprofiler-version
         try:
-            cellprofiler_version = cellprofiler_settings['cp_version']
+            cellprofiler_version = analysis_meta['cp_version']
         except KeyError:
             logging.error(f"Unable to get cellprofiler_version details from analysis entry: sub_id={sub_analysis_id}")
             cellprofiler_version = None
 
         # check if all imgsets should be in the same job
         try:
-            chunk_size = cellprofiler_settings['batch_size'] 
-            pipeline_file = '/cpp_work/pipelines/' + cellprofiler_settings['pipeline_file']
+            chunk_size = analysis_meta['batch_size'] 
+            pipeline_file = '/cpp_work/pipelines/' + analysis_meta['pipeline_file']
         except KeyError:
             logging.error(f"Unable to get cellprofiler details from analysis entry: sub_id={sub_analysis_id}")
             chunk_size = 1
         if chunk_size <= 0:
             # put them all in the same job if chunk size is less or equal to zero
-            chunk_size = len(imgsets)
+            chunk_size = max(1, len(imgsets))
 
 
         # calculate the number of chunks that will be created
@@ -614,11 +636,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             imageset_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.csv"
             output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
-            job_timeout = cellprofiler_settings.get('job_timeout', "10800")
+            job_timeout = analysis_meta.get('job_timeout', "10800")
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
 
             # Check if icf headers should be added to imgset csv file, default is False
-            use_icf = cellprofiler_settings.get('use_icf', False)
+            use_icf = analysis_meta.get('use_icf', False)
             logging.info("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
             imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
@@ -737,7 +759,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
 def merge_family_jobs_csv(family_name, job_list):
 
-    logging.debug("Inside merge_family_jobs_csv")
+    logging.info("Inside merge_family_jobs_csv")
 
     logging.debug("job_list:" + str(job_list))
 
@@ -772,7 +794,7 @@ def merge_family_jobs_csv(family_name, job_list):
                 for row in csv_file_handle:
                     merged_csvs[filename]['rows'].append(row)
 
-    logging.debug("done merge_family_jobs_csv")
+    logging.info("done merge_family_jobs_csv")
 
     return merged_csvs
 
@@ -955,6 +977,9 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
         file_list_with_job_specific_path.append(file_name_with_job_specific_path)
     result['job_folder'] = storage_root['job_specific']
     result['file_list'] = file_list_with_job_specific_path
+
+
+    # Filter file list (remove individual png/tif files and only save path....)
 
 
     # maybe in the future we should do a select first and 
@@ -1303,8 +1328,8 @@ def main():
         
                     # move all other file types to storage
                     files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
-                    logging.debug("files_created:" + str(files_created))
-        
+                    #logging.debug("files_created:" + str(files_created))
+
                     # insert csv to db
                     insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
         
