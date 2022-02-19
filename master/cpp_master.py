@@ -801,9 +801,9 @@ def merge_family_jobs_csv(family_name, job_list):
 
 
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
-def copy_job_results_to_storage(family_name, job_list, storage_root, files_created):
+def move_job_results_to_storage(family_name, job_list, storage_root, files_created):
 
-    logging.debug("inside copy_job_results_to_storage")
+    logging.debug("inside move_job_results_to_storage")
 
     # for each job in the family
     for job in job_list:
@@ -828,7 +828,7 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
             os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
 
             # copy the file to the storage location
-            shutil.copyfile(f"{job_path}/{filename}", f"{storage_root['full']}/{filename}")
+            shutil.move(f"{job_path}/{filename}", f"{storage_root['full']}/{filename}")
 
             # remember the file
             files_created.append(f"{filename}")
@@ -836,7 +836,7 @@ def copy_job_results_to_storage(family_name, job_list, storage_root, files_creat
             logging.debug("done copy file: " + str(filename))
 
 
-    logging.debug("done copy_job_results_to_storage")
+    logging.debug("done move_job_results_to_storage")
 
     return files_created
 
@@ -861,8 +861,6 @@ def get_analysis_sub_id_from_family_name(family_name):
     match = re.match('cpp-worker-job-(\w+)-', family_name)
     return int(match.groups()[0])
     
-
-
 
 
 def get_analysis_info(cursor, analysis_id):
@@ -980,7 +978,7 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
 
 
     # Filter file list (remove individual png/tif files and only save path....)
-
+    result['file_list'] = filter_list_remove_imagefiles(result['file_list'])
 
     # maybe in the future we should do a select first and 
     query = f"""UPDATE image_sub_analyses
@@ -995,6 +993,29 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     logging.debug("Commited")
 
     delete_job(sub_analysis_id)
+    
+def filter_list_remove_imagefiles(list):
+     suffix = ('.png','.jpg','.tiff','.tif')
+     return filter_list_remove_files_suffix(list, suffix)
+
+def filter_list_remove_files_suffix(input_list, suffix):
+
+    filtered_list = []
+    was_filtered = False
+    for file in input_list:
+        if file.lower().endswith(suffix):
+            # remove filename and add path only to filtered list
+            filtered_list.append(os.path.dirname(file) + '/')
+            was_filtered = True
+        else:
+            filtered_list.append(file)
+
+    unique_filtered_list = list(set(filtered_list))
+
+    if was_filtered:
+        logging.debug("unique_filtered_list" + str(unique_filtered_list))
+
+    return unique_filtered_list
     
 
 
@@ -1327,7 +1348,7 @@ def main():
                     logging.debug("files_created:" + str(files_created))
         
                     # move all other file types to storage
-                    files_created = copy_job_results_to_storage(family_name, job_list, storage_paths, files_created)
+                    files_created = move_job_results_to_storage(family_name, job_list, storage_paths, files_created)
                     #logging.debug("files_created:" + str(files_created))
 
                     # insert csv to db
