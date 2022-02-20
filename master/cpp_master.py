@@ -828,7 +828,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root, files_creat
             os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
 
             # copy the file to the storage location
-            shutil.move(f"{job_path}/{filename}", f"{storage_root['full']}/{filename}")
+            os.rename(f"{job_path}/{filename}", f"{storage_root['full']}/{filename}")
 
             # remember the file
             files_created.append(f"{filename}")
