@@ -741,7 +741,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
         
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
-        logging.info(f"fjc: {family_job_count}\tjl: {len(job_list)}")
+        logging.info(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
         # check if there are as many finished jobs as the total job count for the family
         # for debug reasons we also check if the job limit is reached
         if family_job_count == len(job_list) or (job_limit is not None and len(job_list) == job_limit):
