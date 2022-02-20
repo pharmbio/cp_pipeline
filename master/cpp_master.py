@@ -641,7 +641,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = analysis_meta.get('use_icf', False)
-            logging.info("use_icf" + str(use_icf))
+            logging.debug("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
             imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
             
@@ -655,7 +655,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 #            print(dep)
             resp = k8s_batch_api.create_namespaced_job(
                     body=job_yaml, namespace=get_namespace())
-            logging.info(f"Deployment created. status='{resp.metadata.name}'")
+            logging.debug(f"Deployment created. status='{resp.metadata.name}'")
 
             if job_limit is not None and i >= (job_limit-1):
                 print("exit here")
@@ -1369,7 +1369,7 @@ def main():
                     cursor.close()
                     connection.close()
 
-            sleeptime = 10
+            sleeptime = 20
             logging.info(f"Going to sleep for {sleeptime} sec")
             time.sleep(sleeptime)
 
