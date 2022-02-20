@@ -1126,7 +1126,7 @@ def handle_finished_analyses(cursor, connection):
 def delete_job(sub_analysis_id):
 
     namespace = get_namespace()
-    logging.info('Inside delete_job')
+    logging.debug('Inside delete_job')
     
 
     # list all jobs in namespace
@@ -1149,7 +1149,7 @@ def delete_job(sub_analysis_id):
             logging.debug("Delete job:" + job_name)
             response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
             logging.warning(f"Deleting job {job_name}")
-            logging.info(f"Deleting job: {str(response)}")
+            logging.debug(f"Deleting job: {str(response)}")
 
 
 
@@ -1369,7 +1369,9 @@ def main():
                     cursor.close()
                     connection.close()
 
-            time.sleep(10)
+            sleeptime = 10
+            logging.info(f"Going to sleep for {sleeptime} sec")
+            time.sleep(sleeptime)
 
     # Catch all errors
     except Exception as e:
