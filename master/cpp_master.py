@@ -803,7 +803,7 @@ def merge_family_jobs_csv(family_name, job_list):
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
 def move_job_results_to_storage(family_name, job_list, storage_root, files_created):
 
-    logging.debug("inside move_job_results_to_storage")
+    logging.info("inside move_job_results_to_storage")
 
     # for each job in the family
     for job in job_list:
@@ -836,7 +836,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root, files_creat
             logging.debug("done copy file: " + str(filename))
 
 
-    logging.debug("done move_job_results_to_storage")
+    logging.info("done move_job_results_to_storage")
 
     return files_created
 
