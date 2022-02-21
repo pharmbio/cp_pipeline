@@ -408,7 +408,7 @@ def connect_db(cpp_config):
 
 
     # connect to the db
-    logging.warning("Connecting to db.")
+    logging.info("Connecting to db.")
     connection = None
     connection = psycopg2.connect(  database=cpp_config['postgres']['db'], 
                                     user=cpp_config['postgres']['user'],
@@ -1148,7 +1148,7 @@ def delete_job(sub_analysis_id):
 #            pdb.set_trace()
             logging.debug("Delete job:" + job_name)
             response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
-            logging.warning(f"Deleting job {job_name}")
+            logging.debug(f"Deleting job {job_name}")
             logging.debug(f"Deleting job: {str(response)}")
 
 
