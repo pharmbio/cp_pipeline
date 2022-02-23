@@ -292,18 +292,18 @@ metadata:
 spec:
   template:
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - brolin
-               # - klose-vm-worker
-               # - limpar
-               # - messi-vm-worker
+    #   affinity:
+    #     nodeAffinity:
+    #       requiredDuringSchedulingIgnoredDuringExecution:
+    #         nodeSelectorTerms:
+    #         - matchExpressions:
+    #           - key: kubernetes.io/hostname
+    #             operator: In
+    #             values:
+    #             - brolin
+    #            # - klose-vm-worker
+    #            # - limpar
+    #            # - messi-vm-worker
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -323,11 +323,11 @@ spec:
           value: "1"
         resources:
             limits:
-              cpu: 1000m
-              memory: 8Gi 
+              cpu: 1800m
+              memory: 10Gi 
             requests:
-              cpu: 300m
-              memory: 2Gi 
+              cpu: 1800m
+              memory: 4Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
