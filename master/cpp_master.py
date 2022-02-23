@@ -321,13 +321,16 @@ spec:
           value: "{job_timeout}"
         - name: OMP_NUM_THREADS # This is to prevent multithreading of cellprofiler
           value: "1"
-        resources:
-            limits:
-              cpu: 1800m
-              memory: 10Gi 
-            requests:
-              cpu: 1800m
-              memory: 4Gi 
+        #
+        # I specify default resources in namespace file now
+        #
+        # resources:
+        #     limits:
+        #       cpu: 1800m
+        #       memory: 10Gi 
+        #     requests:
+        #       cpu: 1800m
+        #       memory: 4Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
