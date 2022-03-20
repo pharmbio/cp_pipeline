@@ -290,6 +290,7 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
 spec:
+  backoffLimit: 2
   template:
     spec:
     #   affinity:
@@ -507,7 +508,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
     k8s_batch_api = kubernetes.client.BatchV1Api()
     resp = k8s_batch_api.create_namespaced_job(
-                 body=job_yaml, namespace=getNamespace())
+                 body=job_yaml, namespace=get_namespace())
     logging.info(f"Deployment created. status='{resp.metadata.name}'")
 
      # when all chunks of the sub analysis are sent in, mark the sub analysis as started
@@ -1118,15 +1119,7 @@ def handle_finished_analyses(cursor, connection):
 
 
 
-
-
-
-
-
-
-
-
-def delete_job(sub_analysis_id):
+def delete_job(sub_analysis_id, leave_failed=True):
 
     namespace = get_namespace()
     logging.debug('Inside delete_job')
@@ -1146,18 +1139,14 @@ def delete_job(sub_analysis_id):
 
         # check if the job belongs to the sub analysis to delete
         if job_name.startswith(f"cpp-worker-job-{sub_analysis_id}-"):
-
-            # detele the job
-#            pdb.set_trace()
-            logging.debug("Delete job:" + job_name)
-            response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
-            logging.debug(f"Deleting job {job_name}")
-            logging.debug(f"Deleting job: {str(response)}")
-
-
-
-
-
+            
+            # leave failed ones for debugging purposes
+            if job_dict['status']['conditions'][0]['type'] == 'Failed' and leave_failed:
+                # do nothing
+                continue
+            else:
+                logging.debug("Delete job:" + job_name)
+                response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
 
 
 def mark_sub_analysis_as_failed(cursor, connection, job):
@@ -1167,7 +1156,16 @@ def mark_sub_analysis_as_failed(cursor, connection, job):
 
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
-
+    
+    #
+    #
+    # Check if failed already there
+    #
+    #
+    if has_sub_analysis_error(sub_analysis_id):
+        return
+    
+    # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
                 SET error=%s
                 WHERE sub_id=%s
@@ -1175,10 +1173,24 @@ def mark_sub_analysis_as_failed(cursor, connection, job):
     cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
     connection.commit()
 
-
-    #delete_job(sub_analysis_id)
-
-
+    delete_job(sub_analysis_id)
+    
+    
+    
+def has_sub_analysis_error(cursor, connection, sub_analysis_id):
+    
+    # Set error in sub analyses
+    query = """ SELECT error FROM image_sub_analyses
+                WHERE sub_id=%s
+    """
+    cursor.execute(query, [sub_analysis_id,])
+    
+    has_error = cursor.fetchone()
+    
+    if has_error is None:
+        return True
+    else:
+        return False
 
 
 def mark_analysis_as_started(cursor, connection, analysis_id):
@@ -1378,8 +1390,7 @@ def main():
 
     # Catch all errors
     except Exception as e:
-        logging.error(traceback.format_exc())
-        # Logs the error appropriately. 
+        logging.error("Exception", e)
 
 
 if __name__ == "__main__":
