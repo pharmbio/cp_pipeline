@@ -290,7 +290,7 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
 spec:
-  backoffLimit: 2
+  backoffLimit: 1
   template:
     spec:
     #   affinity:
@@ -508,7 +508,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 
     k8s_batch_api = kubernetes.client.BatchV1Api()
     resp = k8s_batch_api.create_namespaced_job(
-                 body=job_yaml, namespace=get_namespace())
+                 body=job_yaml, namespace=get_namespace ())
     logging.info(f"Deployment created. status='{resp.metadata.name}'")
 
      # when all chunks of the sub analysis are sent in, mark the sub analysis as started
