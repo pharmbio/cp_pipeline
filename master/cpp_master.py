@@ -864,8 +864,6 @@ def get_analysis_sub_id_from_path(path):
 def get_analysis_sub_id_from_family_name(family_name):
     match = re.match('cpp-worker-job-(\w+)-', family_name)
     return int(match.groups()[0])
-    
-
 
 def get_analysis_info(cursor, analysis_id):
 
@@ -1140,13 +1138,15 @@ def delete_job(sub_analysis_id, leave_failed=True):
         # check if the job belongs to the sub analysis to delete
         if job_name.startswith(f"cpp-worker-job-{sub_analysis_id}-"):
             
-            # leave failed ones for debugging purposes
-            if job_dict['status']['conditions'][0]['type'] == 'Failed' and leave_failed:
-                # do nothing
-                continue
+            # if the has been marked failed leave it for debugging
+            if (job_dict['status']['conditions'] and 
+                job_dict['status']['conditions'][0]['type'] == 'Failed' and
+                leave_failed):
+                continue # do nothing
             else:
-                logging.debug("Delete job:" + job_name)
                 response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
+
+                
 
 
 def mark_sub_analysis_as_failed(cursor, connection, job):
@@ -1157,12 +1157,8 @@ def mark_sub_analysis_as_failed(cursor, connection, job):
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
     
-    #
-    #
     # Check if failed already there
-    #
-    #
-    if has_sub_analysis_error(sub_analysis_id):
+    if has_sub_analysis_error(cursor, connection, sub_analysis_id):
         return
     
     # Set error in sub analyses
