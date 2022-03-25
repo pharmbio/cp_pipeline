@@ -8,6 +8,8 @@ echo "PIPELINE_FILE=$PIPELINE_FILE"
 echo "IMAGESET_FILE=$IMAGESET_FILE"
 echo "OUTPUT_PATH=$OUTPUT_PATH"
 
+mkdir -p "$OUTPUT_PATH"
+
 # launch cellprofiler set timeout because some jobs never finish (analyses on images never converge)
 timeout $JOB_TIMEOUT \
 cellprofiler \

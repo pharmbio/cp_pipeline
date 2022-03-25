@@ -22,7 +22,7 @@ import kubernetes
 import logging
 import re
 import yaml
-import random 
+import random
 import base64
 import os
 import pathlib
@@ -71,7 +71,7 @@ def all_dependencies_satisfied(analysis, cursor):
                             WHERE sub_id IN ({deps})
                            ''')
         dep_analyses = cursor.fetchall()
-        
+
         # check dependencies and return true if they are all finished
         is_all_analyses_finished = check_analyses_finished(dep_analyses)
         return is_all_analyses_finished
@@ -100,7 +100,7 @@ def check_analyses_finished(analyses):
 
 # function for making a cellprofiler formatted csv file
 def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
-    
+
 #    # fetch channel map from db
 #    logging.info('Running query.')
 #    cursor.execute(f"""
@@ -112,13 +112,13 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
 #    channel_map = {}
 #    for dye in dyes:
 #        channel_map[dye['channel']] = dye['dye']
-	
+
     # placeholder instead of a db query
 #    channel_map = {1:'HOECHST', 2:'SYTO', 3:'MITO', 4:'CONCAVALIN', 5:'PHALLOIDINandWGA'}
 
-    ### create header row 
+    ### create header row
     header = ""
-   
+
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
@@ -139,7 +139,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
         # And then as PathName_
         for ch_nr,ch_name in sorted(channel_map.items()):
             header += f"PathName_ICF_{ch_name},"
-        
+
          # And then as FileName_
         for ch_nr,ch_name in sorted(channel_map.items()):
             header += f"FileName_ICF_{ch_name},"
@@ -183,7 +183,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
             # First as URL
             for ch_nr,ch_name in sorted(channel_map.items()):
                 row +=  f"file:{storage_paths['full']}/ICF_{ch_name}.npy,"
-            
+
             # Also as PathName_
             for ch_nr,ch_name in sorted(channel_map.items()):
                 row +=  f"{storage_paths['full']},"
@@ -203,13 +203,13 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
 def  make_jupyter_yaml(notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file):
 
     docker_image="pharmbio/pharmbio-notebook:tf-2.1.0"
-    
+
     # docker run -e WORK_FOLDER="katt" -it -u root -v /share/data/cellprofiler/automation/:/cpp_work/ pharmbio/pharmbio-notebook:tf-2.1.0 jupyter nbconvert --to pdf --output=/cpp_work/notebooks/hello.output.ipynb.pdf /cpp_work/notebooks/hello.ipynb
 
     return yaml.safe_load(f"""
 
 apiVersion: batch/v1
-kind: Job 
+kind: Job
 metadata:
   name: {job_name}
   namespace: {get_namespace()}
@@ -239,10 +239,10 @@ spec:
         resources:
             limits:
               cpu: 2000m
-              memory: 4Gi 
+              memory: 4Gi
             requests:
               cpu: 500m
-              memory: 2Gi 
+              memory: 2Gi
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -280,7 +280,7 @@ def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, o
     return yaml.safe_load(f"""
 
 apiVersion: batch/v1
-kind: Job 
+kind: Job
 metadata:
   name: {job_name}
   namespace: {get_namespace()}
@@ -293,23 +293,12 @@ spec:
   backoffLimit: 1
   template:
     spec:
-    #   affinity:
-    #     nodeAffinity:
-    #       requiredDuringSchedulingIgnoredDuringExecution:
-    #         nodeSelectorTerms:
-    #         - matchExpressions:
-    #           - key: kubernetes.io/hostname
-    #             operator: In
-    #             values:
-    #             - brolin
-    #            # - klose-vm-worker
-    #            # - limpar
-    #            # - messi-vm-worker
+      nodeSelector:
+        pipelineNode: "true"
       containers:
       - name: cpp-worker
         image: {docker_image}
         imagePullPolicy: Always
-        #command: ["sleep", "3600"]
         command: ["/cpp_worker.sh"]
         env:
         - name: PIPELINE_FILE
@@ -325,13 +314,6 @@ spec:
         #
         # I specify default resources in namespace file now
         #
-        # resources:
-        #     limits:
-        #       cpu: 1800m
-        #       memory: 10Gi 
-        #     requests:
-        #       cpu: 1800m
-        #       memory: 4Gi 
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
@@ -365,7 +347,7 @@ def is_debug():
     debug = False
     if os.environ.get('DEBUG'):
         debug = True
-    
+
     #logging.info("debug=" + str(debug))
 
     return debug
@@ -390,11 +372,11 @@ def load_cpp_config():
     # fetch db settings
     namespace = get_namespace()
     logging.info("namespace:" + namespace)
-    
+
     if is_debug():
         with open('/cpp/configs_debug.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
-   
+
     else:
         configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", namespace)
         cpp_config = yaml.load(configmap.data['configs.yaml'], Loader=yaml.FullLoader)
@@ -414,10 +396,10 @@ def connect_db(cpp_config):
     # connect to the db
     logging.info("Connecting to db.")
     connection = None
-    connection = psycopg2.connect(  database=cpp_config['postgres']['db'], 
+    connection = psycopg2.connect(  database=cpp_config['postgres']['db'],
                                     user=cpp_config['postgres']['user'],
                                     host=cpp_config['postgres']['host'],
-                                    port=cpp_config['postgres']['port'], 
+                                    port=cpp_config['postgres']['port'],
                                     password=cpp_config['postgres']['password'])
 
     # make results into dicts
@@ -439,11 +421,11 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                         SELECT *
                         FROM image_sub_analyses
                         WHERE start IS NULL
-                        ORDER by sub_id 
+                        ORDER by sub_id
                        ''')
     analyses = cursor.fetchall()
 
-    # for all unstarted analyses 
+    # for all unstarted analyses
     for analysis in analyses:
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
@@ -470,7 +452,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
     analysis_id = analysis["analysis_id"]
     sub_analysis_id = analysis["sub_id"]
     acquisition_id = analysis["plate_acquisition_id"]
-    
+
     logging.info('Inside handle_anlysis_jupyter_notebook')
 
     notebook_file = "/cpp_work/notebooks/" + analysis["meta"]["notebook_file"]
@@ -488,7 +470,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
         analyis_input_folder = input_storage_paths['full']
         analysis_input_file = "Nothing"
 
-    # To do - create general method for this (its duplicated in handle_analysis_cellprofiler) 
+    # To do - create general method for this (its duplicated in handle_analysis_cellprofiler)
     # generate names
     random_identifier = generate_random_identifier(8)
     job_number = 0;
@@ -540,7 +522,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         channel_map = {}
         for channel in channel_map_res:
             channel_map[channel['channel']] = channel['dye']
-        
+
         # make sure channel map is populated
         if len(channel_map) == 0:
             raise ValueError('Channel map is empty, possible error in plate acqusition id.')
@@ -564,7 +546,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
-        
+
         query = ("SELECT *"
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s")
@@ -579,7 +561,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         query += " ORDER BY timepoint, well, site, channel"
 
         logging.info("query: " + query)
-        
+
         cursor.execute(query, (analysis['plate_acquisition_id'],))
         imgs = cursor.fetchall()
 
@@ -609,7 +591,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
         # check if all imgsets should be in the same job
         try:
-            chunk_size = analysis_meta['batch_size'] 
+            chunk_size = analysis_meta['batch_size']
             pipeline_file = '/cpp_work/pipelines/' + analysis_meta['pipeline_file']
         except KeyError:
             logging.error(f"Unable to get cellprofiler details from analysis entry: sub_id={sub_analysis_id}")
@@ -629,7 +611,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         # Make sure output dir exists
         os.makedirs(f"{storage_paths['full']}", exist_ok=True)
 
-        
+
         # create chunks and submit as separate jobs
         random_identifier = generate_random_identifier(8)
         for i,imgset_chunk in enumerate(chunk_dict(img_infos, chunk_size)):
@@ -648,13 +630,13 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             logging.debug("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
             imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
-            
+
             # create a folder for the file if needed
             os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
             # write csv
             with open(imageset_file, 'w') as imageset_csv:
                 imageset_csv.write(imageset_content)
-            
+
             k8s_batch_api = kubernetes.client.BatchV1Api()
 #            print(dep)
             resp = k8s_batch_api.create_namespaced_job(
@@ -699,7 +681,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
     job_list = k8s_batch_api.list_namespaced_job(namespace=get_namespace())
-    
+
     # filter out all finished jobs
     finished_jobs = {}
     for job in job_list.items:
@@ -713,7 +695,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 
         # if the job's state is compelted, save it in a new dict with job name as key
         if job_dict['status']['conditions'][0]['type'] == 'Complete':
-            finished_jobs[job_dict['metadata']['name']] = job_dict 
+            finished_jobs[job_dict['metadata']['name']] = job_dict
 
         elif job_dict['status']['conditions'][0]['type'] == 'Failed':
             mark_sub_analysis_as_failed(cursor, connection, job_dict)
@@ -742,7 +724,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
     family_job_count = {}
     finished_families = {}
     for family_name, job_list in job_buckets.items():
-        
+
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
         logging.info(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
@@ -757,7 +739,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
     logging.info("Finished families: " + str(len(finished_families)))
     return finished_families
 
-    
+
 
 # goes through all jobs of a family i.e. merges the csvs with the same names into
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
@@ -772,7 +754,7 @@ def merge_family_jobs_csv(family_name, job_list):
 
     # for each job in the family
     for job in job_list:
-        
+
         # fetch all csv files in the job folder
         analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
         job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
@@ -811,7 +793,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root, files_creat
 
     # for each job in the family
     for job in job_list:
-        
+
         # fetch all files in the job folder
         analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
         job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
@@ -935,7 +917,7 @@ def write_csv_to_storage(merged_csvs, storage_root):
             csv_file_handle.write((merged_csvs[csv_filename]['header']))
             for line in merged_csvs[csv_filename]['rows']:
                 csv_file_handle.write(line)
-            
+
             logging.debug("write done" )
 
         files_created.append(f"{csv_filename}")
@@ -982,7 +964,7 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     # Filter file list (remove individual png/tif files and only save path....)
     result['file_list'] = filter_list_remove_imagefiles(result['file_list'])
 
-    # maybe in the future we should do a select first and 
+    # maybe in the future we should do a select first and
     query = f"""UPDATE image_sub_analyses
                 SET result=%s,
                     finish=%s
@@ -995,7 +977,7 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     logging.debug("Commited")
 
     delete_job(sub_analysis_id)
-    
+
 def filter_list_remove_imagefiles(list):
      suffix = ('.png','.jpg','.tiff','.tif')
      return filter_list_remove_files_suffix(list, suffix)
@@ -1018,7 +1000,7 @@ def filter_list_remove_files_suffix(input_list, suffix):
         logging.debug("unique_filtered_list" + str(unique_filtered_list))
 
     return unique_filtered_list
-    
+
 
 
 # go through unfinished analyses and wrap them up if possible
@@ -1041,8 +1023,8 @@ def handle_finished_analyses(cursor, connection):
         # get all sub analysis belonging to the analysis
 
         # fetch all unfinished analyses
-        
-            
+
+
         sql = (f"""
             SELECT *
             FROM image_sub_analyses
@@ -1050,7 +1032,7 @@ def handle_finished_analyses(cursor, connection):
             """) # also NOT IN (select * from images_analysis where analysed=None) or something
 
         logging.debug("sql" + sql)
-        
+
         cursor.execute(sql)
 
         sub_analyses = cursor.fetchall()
@@ -1066,7 +1048,7 @@ def handle_finished_analyses(cursor, connection):
 
             # check if it is unfinished
             if not sub_analysis['finish']:
-            
+
                 # if so, flag to move on to the next analysis
                 only_finished_subs = False
 
@@ -1121,12 +1103,12 @@ def delete_job(sub_analysis_id, leave_failed=True):
 
     namespace = get_namespace()
     logging.debug('Inside delete_job')
-    
+
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
     job_list = k8s_batch_api.list_namespaced_job(namespace=namespace)
-    
+
     # filter out all finished jobs
     for job in job_list.items:
 
@@ -1137,16 +1119,16 @@ def delete_job(sub_analysis_id, leave_failed=True):
 
         # check if the job belongs to the sub analysis to delete
         if job_name.startswith(f"cpp-worker-job-{sub_analysis_id}-"):
-            
+
             # if the has been marked failed leave it for debugging
-            if (job_dict['status']['conditions'] and 
+            if (job_dict['status']['conditions'] and
                 job_dict['status']['conditions'][0]['type'] == 'Failed' and
                 leave_failed):
                 continue # do nothing
             else:
                 response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
 
-                
+
 
 
 def mark_sub_analysis_as_failed(cursor, connection, job):
@@ -1156,11 +1138,11 @@ def mark_sub_analysis_as_failed(cursor, connection, job):
 
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
-    
+
     # Check if failed already there
     if has_sub_analysis_error(cursor, connection, sub_analysis_id):
         return
-    
+
     # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
                 SET error=%s
@@ -1170,19 +1152,19 @@ def mark_sub_analysis_as_failed(cursor, connection, job):
     connection.commit()
 
     delete_job(sub_analysis_id)
-    
-    
-    
+
+
+
 def has_sub_analysis_error(cursor, connection, sub_analysis_id):
-    
+
     # Set error in sub analyses
     query = """ SELECT error FROM image_sub_analyses
                 WHERE sub_id=%s
     """
     cursor.execute(query, [sub_analysis_id,])
-    
+
     has_error = cursor.fetchone()
-    
+
     if has_error is None:
         return True
     else:
@@ -1221,7 +1203,7 @@ def mark_sub_analysis_as_started(cursor, connection, sub_analysis_id):
 
 def reset_debug_jobs(analysis_id, sub_analysis_id, connection=None, cursor=None):
 
-    
+
     query = f"""
 
 UPDATE image_sub_analyses
@@ -1254,7 +1236,7 @@ WHERE id={analysis_id};
 def get_storage_paths_from_analysis_id(cursor, analysis_id):
 
     analysis_info = get_analysis_info(cursor, analysis_id)
-    
+
     plate_barcode = analysis_info["plate_barcode"]
     acquisition_id = analysis_info["plate_acquisition_id"]
 
@@ -1318,9 +1300,9 @@ def main():
             # reset to avoid stale connections
             connection = None
             cursor = None
-        
+
             try:
-        
+
                 if is_debug():
                     job_limit = None
                 else:
@@ -1338,14 +1320,14 @@ def main():
                     first_reset = False
                     logging.info("Resetting debug jobs.")
 
-                
+
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
-            
+
                 finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
-                
+
                 # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
                 for family_name, job_list in finished_families.items():
-        
+
                     sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
 
                     # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
@@ -1357,23 +1339,23 @@ def main():
                     # write csv to storage location
                     files_created = write_csv_to_storage(merged_csvs, storage_paths)
                     logging.debug("files_created:" + str(files_created))
-        
+
                     # move all other file types to storage
                     files_created = move_job_results_to_storage(family_name, job_list, storage_paths, files_created)
                     #logging.debug("files_created:" + str(files_created))
 
                     # insert csv to db
                     insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
-        
-        
+
+
                 # check for finished analyses
                 handle_finished_analyses(cursor, connection)
-            
-            
+
+
             # catch db errors
             except (psycopg2.Error) as error:
                 logging.exception(error)
-            
+
             finally:
                 #closing database connection
                 if connection:
