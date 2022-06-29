@@ -16,7 +16,7 @@ RUN cd /CellProfiler/plugins && wget https://raw.githubusercontent.com/CellProfi
 RUN python3.8 -m cellpose
 
 # add our cpp_worker script #
-COPY cpp_worker.sh /
+COPY ../cpp_worker.sh /
 RUN chmod a+x /cpp_worker.sh
 
 

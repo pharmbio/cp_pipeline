@@ -1,10 +1,4 @@
-
-if [[ $# -eq 0 ]] ; then
-    echo 'You need to specify version as argument, e.g. build-push-docker.sh v4.0.7'
-    exit 0
-fi
-
-VERSION=$1
+VERSION=v4.2.1
 
 docker build -t "ghcr.io/pharmbio/cpp_worker:$VERSION-latest" .
 docker push "ghcr.io/pharmbio/cpp_worker:$VERSION-latest"
