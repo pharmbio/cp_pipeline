@@ -622,6 +622,9 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             imageset_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.csv"
             output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
+
+            logging.debug("job_timeout=" + analysis_meta.get('job_timeout'))
+
             job_timeout = analysis_meta.get('job_timeout', "10800")
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
 
@@ -1276,15 +1279,20 @@ def main():
         if is_debug():
             is_debug_version = "debug."
         logfile_name = "/cpp_work/logs/cpp_master." + is_debug_version + now_string + ".log"
+        log_level = logging.DEBUG if is_debug() else logging.INFO
+
+        print ("is_debug" + str(is_debug()))
+
         logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                             datefmt='%Y-%m-%d:%H:%M:%S',
-                            level=logging.INFO,
+                            level=log_level,
                             filename=logfile_name,
                             filemode='w')
 
         # define a Handler which writes INFO messages or higher to the sys.stderr
+
         console = logging.StreamHandler()
-        console.setLevel(logging.INFO)
+        console.setLevel(log_level)
 
         # set a formater for console
         consol_fmt = logging.Formatter('%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s')
@@ -1293,6 +1301,10 @@ def main():
 
         # add the handler to the root logger
         logging.getLogger('').addHandler(console)
+
+        logging.info("isdebug:" + str(is_debug()))
+
+        logging.getLogger("kubernetes").setLevel(logging.WARNING)
 
         first_reset = True
         while True:
