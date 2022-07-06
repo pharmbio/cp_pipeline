@@ -12,8 +12,8 @@ RUN mkdir -p /CellProfiler/plugins
 # download the CellPose plugin
 RUN cd /CellProfiler/plugins && wget https://raw.githubusercontent.com/CellProfiler/CellProfiler-plugins/master/runcellpose.py
 
-# trigger download of pre-built cellpose models (by starting cellpose program)
-RUN python3.8 -m cellpose
+# Copy pre-built cellpose models
+COPY ./models/ /root/.cellpose/models/
 
 # add our cpp_worker script #
 COPY ./cpp_worker.sh /
