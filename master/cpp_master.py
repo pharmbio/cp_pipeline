@@ -369,6 +369,7 @@ def init_kubernetes_connection():
 def load_cpp_config():
 
 
+
     # fetch db settings
     namespace = get_namespace()
     logging.info("namespace:" + namespace)
@@ -552,10 +553,10 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                  " WHERE plate_acquisition_id=%s")
 
         if site_filter:
-            query += " AND site IN {sites} ".format(sites=tuple(site_filter))
+            query += f" AND site IN {(site_filter)} "
 
         if well_filter:
-            query += " AND well IN {wells} ".format(wells=tuple(well_filter))
+            query += f" AND well IN {(well_filter)} "
 
 
         query += " ORDER BY timepoint, well, site, channel"
