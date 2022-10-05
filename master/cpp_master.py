@@ -422,7 +422,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                         SELECT *
                         FROM image_sub_analyses
                         WHERE start IS NULL
-                        ORDER by sub_id
+                        ORDER by priority, sub_id
                        ''')
     analyses = cursor.fetchall()
 
@@ -553,10 +553,10 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                  " WHERE plate_acquisition_id=%s")
 
         if site_filter:
-            query += f" AND site IN {(site_filter)} "
+            query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
 
         if well_filter:
-            query += f" AND well IN {(well_filter)} "
+            query += ' AND well IN (' + ','.join("'{0}'".format(w) for w in well_filter) + ")"
 
 
         query += " ORDER BY timepoint, well, site, channel"
@@ -624,7 +624,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
 
-            logging.debug("job_timeout=" + analysis_meta.get('job_timeout'))
+            logging.debug(f"job_timeout={analysis_meta.get('job_timeout')}")
 
             job_timeout = analysis_meta.get('job_timeout', "10800")
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
