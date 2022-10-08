@@ -1,9 +1,0 @@
-postgres:
-    db:     imagedb
-    user:   postgres
-    host:   130.238.44.10
-    port:   5432
-    password: example
-
-    
-

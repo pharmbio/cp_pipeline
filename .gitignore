@@ -3,5 +3,5 @@ debug/*
 id_rsa*
 password*
 kube_config/*
-configs.yaml
+*configs.yaml
 *.sif
