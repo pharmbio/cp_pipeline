@@ -2,11 +2,13 @@
 
 set -o pipefail
 
+logfile="$OUTPUT_PATH/cp.log"
+
 # output variables as debug info
-echo "JOB_TIMEOUT=$JOB_TIMEOUT"
-echo "PIPELINE_FILE=$PIPELINE_FILE"
-echo "IMAGESET_FILE=$IMAGESET_FILE"
-echo "OUTPUT_PATH=$OUTPUT_PATH"
+echo "JOB_TIMEOUT=$JOB_TIMEOUT" | tee -a "$logfile"
+echo "PIPELINE_FILE=$PIPELINE_FILE" | tee -a "$logfile"
+echo "IMAGESET_FILE=$IMAGESET_FILE" | tee -a "$logfile"
+echo "OUTPUT_PATH=$OUTPUT_PATH" | tee -a "$logfile"
 
 mkdir -p "$OUTPUT_PATH"
 
@@ -18,13 +20,13 @@ cellprofiler \
 -p $PIPELINE_FILE \
 --data-file $IMAGESET_FILE \
 -o $OUTPUT_PATH \
---plugins-directory /CellProfiler/plugins 2>&1 | tee -a "$OUTPUT_PATH/cp.log"
+--plugins-directory /CellProfiler/plugins 2>&1 | tee -a "$logfile"
 
 # Set exit code to 0 if job was exited due to timeout
 exit_code=$?
-echo "exit_code=$exit_code"
+echo "exit_code=$exit_code" | tee -a "$logfile"
 if [ $exit_code -eq 124 ]; then
-   echo "JOB_KILLED_BY_TIMEOUT"
+   echo "JOB_KILLED_BY_TIMEOUT" | tee -a "$logfile"
    exit_code=0
 fi
 exit $exit_code

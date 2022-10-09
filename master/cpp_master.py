@@ -315,7 +315,7 @@ spec:
         # I specify default resources in namespace file now
         #
         volumeMounts:
-        - mountPath: /share/mikro/IMX/MDC_pharmbio/
+        - mountPath: /share/mikro/
           name: mikroimages
         - mountPath: /root/.kube/
           name: kube-config
@@ -368,24 +368,22 @@ def init_kubernetes_connection():
 
 def load_cpp_config():
 
-
-
     # fetch db settings
     namespace = get_namespace()
     logging.info("namespace:" + namespace)
 
     if is_debug():
-        with open('/cpp/configs_debug.yaml', 'r') as configs_debug:
+        with open('/cpp/debug_configs.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
 
     else:
         configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", namespace)
         cpp_config = yaml.load(configmap.data['configs.yaml'], Loader=yaml.FullLoader)
 
-        # fetch db secret
-        secret = kubernetes.client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
-        postgres_password = base64.b64decode(secret.data['password.postgres']).decode().strip()
-        cpp_config['postgres']['password'] = postgres_password
+    # fetch db secret
+    secret = kubernetes.client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
+    postgres_password = base64.b64decode(secret.data['password.postgres']).decode().strip()
+    cpp_config['postgres']['password'] = postgres_password
 
 
     return cpp_config
@@ -418,12 +416,15 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     # ask for all new analyses
     logging.info('Running analyses query.')
-    cursor.execute('''
-                        SELECT *
-                        FROM image_sub_analyses
-                        WHERE start IS NULL
-                        ORDER by priority, sub_id
-                       ''')
+    query = '''
+             SELECT *
+             FROM image_sub_analyses
+             WHERE start IS NULL
+             ORDER by priority, sub_id
+            '''
+    logging.info(query)
+    cursor.execute(query)
+
     analyses = cursor.fetchall()
 
     # for all unstarted analyses
@@ -621,6 +622,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             job_number = i
             job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
             imageset_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.csv"
+            job_yaml_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.yaml"
             output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
             job_name = f"cpp-worker-job-{job_id}"
 
@@ -638,8 +640,12 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             # create a folder for the file if needed
             os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
             # write csv
-            with open(imageset_file, 'w') as imageset_csv:
-                imageset_csv.write(imageset_content)
+            with open(imageset_file, 'w') as file:
+                file.write(imageset_content)
+            
+            # save yaml for debugging purposes
+            with open(job_yaml_file, 'w') as file:
+                file.write(job_yaml)
 
             k8s_batch_api = kubernetes.client.BatchV1Api()
 #            print(dep)

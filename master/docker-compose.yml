@@ -1,10 +1,4 @@
 version: "2.4"
-
-networks:
-  db-net:
-    external:
-      name: image-db-net
-
 services:
   cpp-master:
     build:
@@ -14,10 +8,10 @@ services:
     restart: "no"
     environment:
       - DEBUG=1
+      - DB_PASS={$DB_PASS}
     volumes:
       - ./:/cpp # mount the pwd to the container
       - ../kube_config/:/root/.kube # mount the kube credentials from the fs of the dev node
       - /share/data/cellprofiler/automation/:/cpp_work # mount the work and result nfs share from the fs of the dev node
-    networks:
-      - db-net
+
     command: ["python3", "/cpp/cpp_master.py"]
