@@ -969,9 +969,12 @@ def write_parquet_to_storage(merged_csvs, storage_root):
         filename = f"{storage_root['full']}/{csv_filename}"
 
         logging.debug("inside_write" )
-        header = merged_csvs[csv_filename]['header']
+        header = merged_csvs[csv_filename]['header'].split(",")
         rows = merged_csvs[csv_filename]['rows']
 
+        logging.info(f'header:{header}')
+        logging.info(f'header:{rows}')
+        
         pd.DataFrame(rows, columns=header)
 
 
@@ -1446,7 +1449,7 @@ def main():
                     merged_csvs = merge_family_jobs_csv(family_name, job_list)
         #            pdb.set_trace()
                     # write csv to storage location
-                    files_created = write_parquet_to_storage(merged_csvs, storage_paths)
+                    files_created = write_csv_to_storage(merged_csvs, storage_paths)
 
                     logging.debug("files_created:" + str(files_created))
 
