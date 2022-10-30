@@ -123,7 +123,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
-    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID"
+    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"PathName_{ch_name},"
@@ -167,7 +167,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
             row += f"{img_filename},"
 
         # add imgset info
-        row += f"{imgset_counter},1,{imgset_counter},{img['plate_barcode']},{img['site']},{img['well']}{img['plate_acquisition_id']},"
+        row += f"{imgset_counter},1,{imgset_counter},{img['plate_barcode']},{img['site']},{img['well']},{img['plate_acquisition_id']},"
 
         # add file paths
         for img in sorted_imgset:
@@ -1446,7 +1446,7 @@ def main():
                     merged_csvs = merge_family_jobs_csv(family_name, job_list)
         #            pdb.set_trace()
                     # write csv to storage location
-                    files_created = write_csv_to_storage(merged_csvs, storage_paths)
+                    files_created = write_parquet_to_storage(merged_csvs, storage_paths)
 
                     logging.debug("files_created:" + str(files_created))
 
