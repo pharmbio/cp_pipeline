@@ -36,6 +36,7 @@ import csv
 import shutil
 import datetime
 import time
+import pandas as pd
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
@@ -122,7 +123,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
-    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,"
+    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"PathName_{ch_name},"
@@ -166,7 +167,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
             row += f"{img_filename},"
 
         # add imgset info
-        row += f"{imgset_counter},1,{imgset_counter},{img['plate_barcode']},{img['site']},{img['well']},"
+        row += f"{imgset_counter},1,{imgset_counter},{img['plate_barcode']},{img['site']},{img['well']}{img['plate_acquisition_id']},"
 
         # add file paths
         for img in sorted_imgset:
@@ -642,10 +643,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             # write csv
             with open(imageset_file, 'w') as file:
                 file.write(imageset_content)
-            
+
             # save yaml for debugging purposes
             with open(job_yaml_file, 'w') as file:
-                file.write(job_yaml)
+                yaml.dump(job_yaml, file, default_flow_style=False)
+
 
             k8s_batch_api = kubernetes.client.BatchV1Api()
 #            print(dep)
@@ -794,6 +796,51 @@ def merge_family_jobs_csv(family_name, job_list):
 
     return merged_csvs
 
+# goes through all jobs of a family i.e. merges the csvs with the same names into
+# a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
+def merge_family_jobs_csv_pandas(family_name, job_list):
+
+    logging.info("Inside merge_family_jobs_csv")
+
+    logging.debug("job_list:" + str(job_list))
+
+    # init
+    merged_csvs = {}
+
+    # for each job in the family
+    for job in job_list:
+
+        # fetch all csv files in the job folder
+        analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
+        job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
+        for csv_file in pathlib.Path(job_path).rglob("*.csv"):
+
+            # keep only the path relative to the job_path
+            filename = str(csv_file).replace(job_path+'/', '')
+
+            logging.debug("filename" + str(filename))
+
+            # init the file entry if needed
+            if filename not in merged_csvs:
+                # create a new pandas df
+
+                merged_csvs[filename] = {}
+                merged_csvs[filename]['rows'] = []
+
+            # read the csv
+            with open(csv_file, 'r') as csv_file_handle:
+
+                # svae the first row as header
+                merged_csvs[filename]['header'] = csv_file_handle.readline()
+
+                # append the remaining rows as content
+                for row in csv_file_handle:
+                    merged_csvs[filename]['rows'].append(row)
+
+    logging.info("done merge_family_jobs_csv")
+
+    return merged_csvs
+
 
 
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
@@ -902,6 +949,43 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
 
 
 
+def write_parquet_to_storage(merged_csvs, storage_root):
+
+    logging.debug("Inside write_parquet_to_storage")
+
+    # remember created files
+    files_created = []
+
+    # loop over all csv files in the dict
+    for csv_filename in merged_csvs:
+
+        logging.debug("csv_filename" + csv_filename)
+
+        # make dir if needed
+        subdir_name = os.path.dirname(csv_filename)
+        os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
+
+
+        filename = f"{storage_root['full']}/{csv_filename}"
+
+        logging.debug("inside_write" )
+        header = merged_csvs[csv_filename]['header']
+        rows = merged_csvs[csv_filename]['rows']
+
+        pd.DataFrame(rows, columns=header)
+
+
+
+
+        # write as parquett
+        #table = csv.read_csv(local_file)
+        #parquet.write_table(table, parquet_file)
+
+
+
+    logging.debug("Done write_csv_to_storage")
+
+    return files_created
 
 
 
@@ -930,7 +1014,13 @@ def write_csv_to_storage(merged_csvs, storage_root):
 
             logging.debug("write done" )
 
-        files_created.append(f"{csv_filename}")
+
+
+        # write as parquett
+        #table = csv.read_csv(local_file)
+        #parquet.write_table(table, parquet_file)
+
+
 
     logging.debug("Done write_csv_to_storage")
 
@@ -1357,6 +1447,7 @@ def main():
         #            pdb.set_trace()
                     # write csv to storage location
                     files_created = write_csv_to_storage(merged_csvs, storage_paths)
+
                     logging.debug("files_created:" + str(files_created))
 
                     # move all other file types to storage
