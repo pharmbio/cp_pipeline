@@ -9,7 +9,7 @@ RUN apt update && \
 RUN pip3 install psycopg2-binary \
                  kubernetes \
                  pandas==1.5 \
-                 fastparquet==0.7
+                 pyarrow==10
 
 # add scripts later
 COPY cpp_master.py /cpp/

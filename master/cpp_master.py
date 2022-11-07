@@ -796,58 +796,85 @@ def merge_family_jobs_csv(family_name, job_list):
 
     return merged_csvs
 
+def to32bit(t):
+    return t.astype({c: str(t[c].dtype).replace('64', '32') for c in t.columns})
+
 # goes through all jobs of a family i.e. merges the csvs with the same names into
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
-def merge_family_jobs_csv_pandas(family_name, job_list):
+def merge_family_jobs_csv_to_parquet(family_name):
 
-    logging.info("Inside merge_family_jobs_csv")
+    logging.info("Inside merge_family_jobs_csv_to_parquet")
+    
+    # find all csv files in the sub-analayses folder
+    analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
+    sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
 
-    logging.debug("job_list:" + str(job_list))
+    # Put csv-files in dict of lists where dict-key is csv-filename (all files have same name
+    # but are in different sub-dirs (job-dirs))
+    files = pathlib.Path(sub_analysis_path).rglob("*.csv")
+    filename_dict = {}
+    for file in files:
+        filename = os.path.basename(file)
+        file_list = filename_dict.setdefault(filename, [])
+        file_list.append(file)
 
-    # init
-    merged_csvs = {}
+    logging.debug(filename_dict.keys())
 
-    # for each job in the family
-    for job in job_list:
+    # concat all csv-files (per filename), loop filename(key)
+    for key in filename_dict.keys():
 
-        # fetch all csv files in the job folder
-        analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
-        job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
-        for csv_file in pathlib.Path(job_path).rglob("*.csv"):
+        start = time.time()
+        
+        files = filename_dict[key]
+        n = 0
 
-            # keep only the path relative to the job_path
-            filename = str(csv_file).replace(job_path+'/', '')
+        # create concat-csv with all files with current filename, e.g experiment, nuclei, cytoplasm
+        skip_header = False
+        tmp_csvfile = os.path.join('/tmp/', key + '.merged.csv.tmp')
+        try:
+            with open(tmp_csvfile, 'w') as csvout:
+                for file in files:
+                    with open(file, "r") as f:
+                        # only include header once
+                        if skip_header:
+                            next(f)
+                            skip_header = True
+                        for row in f:
+                            csvout.write(row)
+                            
+                    if n % 500 == 0:
+                        logging.info(f'{n}/{len(files)} {key}')
+                    n = n+1
 
-            logging.debug("filename" + str(filename))
+            logging.info(f'done concat csv {key}')
+            logging.info(f"elapsed: {(time.time() - start):.3f}")
+            logging.info(f'start pd.read_csv {tmp_csvfile}')
+            df = pd.read_csv(tmp_csvfile, low_memory=False)
+            os.remove(tmp_csvfile)
+            logging.info(f'done concat {key}')
+            logging.info(f"elapsed: {(time.time() - start):.3f}")
+            logging.info(f'start save as parquet {key}')
+            df = to32bit(df)
+            parquetfile = os.path.join(sub_analysis_path, key + '.parquet')
+            df.to_parquet(parquetfile)
+            logging.info(f'done save as parquet {key}')
+            logging.info(f"elapsed: {(time.time() - start):.3f}")
 
-            # init the file entry if needed
-            if filename not in merged_csvs:
-                # create a new pandas df
+        finally:
+            if os.path.exists(tmp_csvfile):
+                os.remove(tmp_csvfile)
 
-                merged_csvs[filename] = {}
-                merged_csvs[filename]['rows'] = []
-
-            # read the csv
-            with open(csv_file, 'r') as csv_file_handle:
-
-                # svae the first row as header
-                merged_csvs[filename]['header'] = csv_file_handle.readline()
-
-                # append the remaining rows as content
-                for row in csv_file_handle:
-                    merged_csvs[filename]['rows'].append(row)
-
-    logging.info("done merge_family_jobs_csv")
-
-    return merged_csvs
+    logging.info("done merge_family_jobs_csv_to_parquet")
 
 
 
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
-def move_job_results_to_storage(family_name, job_list, storage_root, files_created):
+def move_job_results_to_storage(family_name, job_list, storage_root):
 
     logging.info("inside move_job_results_to_storage")
-
+    
+    files_created = {}
+    
     # for each job in the family
     for job in job_list:
 
@@ -870,13 +897,28 @@ def move_job_results_to_storage(family_name, job_list, storage_root, files_creat
             subdir_name = os.path.dirname(filename)
             os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
 
-            # copy the file to the storage location
+            # move the file to the storage location
             shutil.move(f"{job_path}/{filename}", f"{storage_root['full']}/{filename}")
 
             # remember the file
             files_created.append(f"{filename}")
 
             logging.debug("done copy file: " + str(filename))
+            
+    # move the concatenated output-csv that are in parquet format in sub-analysis dir
+    sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
+    for result_file in pathlib.Path(sub_analysis_path).glob("*.parquet"):
+        
+        # keep only the filename in result
+        filename = str(result_file).replace(sub_analysis_path+'/', '')
+        
+        # move the file to the storage location
+        shutil.move(f"{sub_analysis_path}/{result_file}", f"{storage_root['full']}/{filename}")
+
+        # remember the file
+        files_created.append(f"{filename}")
+
+        logging.debug("done copy file: " + str(filename))
 
 
     logging.info("done move_job_results_to_storage")
@@ -946,91 +988,6 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
         logging.error("plate_info is None, sub_id not found, should not be able to happen....")
 
     return plate_info
-
-
-
-def write_parquet_to_storage(merged_csvs, storage_root):
-
-    logging.debug("Inside write_parquet_to_storage")
-
-    # remember created files
-    files_created = []
-
-    # loop over all csv files in the dict
-    for csv_filename in merged_csvs:
-
-        logging.debug("csv_filename" + csv_filename)
-
-        # make dir if needed
-        subdir_name = os.path.dirname(csv_filename)
-        os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
-
-
-        filename = f"{storage_root['full']}/{csv_filename}"
-
-        logging.debug("inside_write" )
-        header = merged_csvs[csv_filename]['header'].split(",")
-        rows = merged_csvs[csv_filename]['rows']
-
-        logging.info(f'header:{header}')
-        logging.info(f'header:{rows}')
-        
-        pd.DataFrame(rows, columns=header)
-
-
-
-
-        # write as parquett
-        #table = csv.read_csv(local_file)
-        #parquet.write_table(table, parquet_file)
-
-
-
-    logging.debug("Done write_csv_to_storage")
-
-    return files_created
-
-
-
-def write_csv_to_storage(merged_csvs, storage_root):
-
-    logging.debug("Inside write_csv_to_storage")
-
-    # remember created files
-    files_created = []
-
-    # loop over all csv files in the dict
-    for csv_filename in merged_csvs:
-
-        logging.debug("csv_filename" + csv_filename)
-
-        # make dir if needed
-        subdir_name = os.path.dirname(csv_filename)
-        os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
-
-        with open(f"{storage_root['full']}/{csv_filename}", 'w', newline='') as csv_file_handle:
-            #pdb.set_trace()
-            logging.debug("inside_write" )
-            csv_file_handle.write((merged_csvs[csv_filename]['header']))
-            for line in merged_csvs[csv_filename]['rows']:
-                csv_file_handle.write(line)
-
-            logging.debug("write done" )
-
-
-
-        # write as parquett
-        #table = csv.read_csv(local_file)
-        #parquet.write_table(table, parquet_file)
-
-
-
-    logging.debug("Done write_csv_to_storage")
-
-    return files_created
-
-
-
 
 
 def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_root,  file_list):
@@ -1446,16 +1403,10 @@ def main():
                     storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
 
                     # merge all job csvs into family csv
-                    merged_csvs = merge_family_jobs_csv(family_name, job_list)
-        #            pdb.set_trace()
-                    # write csv to storage location
-                    files_created = write_csv_to_storage(merged_csvs, storage_paths)
+                    files_created = merge_family_jobs_csv_to_parquet(family_name)
 
-                    logging.debug("files_created:" + str(files_created))
-
-                    # move all other file types to storage
+                    # move all files to storage, e.g. results folder
                     files_created = move_job_results_to_storage(family_name, job_list, storage_paths, files_created)
-                    #logging.debug("files_created:" + str(files_created))
 
                     # insert csv to db
                     insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
