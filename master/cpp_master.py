@@ -804,7 +804,7 @@ def to32bit(t):
 def merge_family_jobs_csv_to_parquet(family_name):
 
     logging.info("Inside merge_family_jobs_csv_to_parquet")
-    
+
     # find all csv files in the sub-analayses folder
     analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
     sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
@@ -824,7 +824,7 @@ def merge_family_jobs_csv_to_parquet(family_name):
     for key in filename_dict.keys():
 
         start = time.time()
-        
+
         files = filename_dict[key]
         n = 0
 
@@ -841,7 +841,7 @@ def merge_family_jobs_csv_to_parquet(family_name):
                             skip_header = True
                         for row in f:
                             csvout.write(row)
-                            
+
                     if n % 500 == 0:
                         logging.info(f'{n}/{len(files)} {key}')
                     n = n+1
@@ -872,9 +872,9 @@ def merge_family_jobs_csv_to_parquet(family_name):
 def move_job_results_to_storage(family_name, job_list, storage_root):
 
     logging.info("inside move_job_results_to_storage")
-    
+
     files_created = {}
-    
+
     # for each job in the family
     for job in job_list:
 
@@ -904,14 +904,14 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
             files_created.append(f"{filename}")
 
             logging.debug("done copy file: " + str(filename))
-            
+
     # move the concatenated output-csv that are in parquet format in sub-analysis dir
     sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
     for result_file in pathlib.Path(sub_analysis_path).glob("*.parquet"):
-        
+
         # keep only the filename in result
         filename = str(result_file).replace(sub_analysis_path+'/', '')
-        
+
         # move the file to the storage location
         shutil.move(f"{sub_analysis_path}/{result_file}", f"{storage_root['full']}/{filename}")
 
@@ -924,7 +924,6 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
     logging.info("done move_job_results_to_storage")
 
     return files_created
-
 
 
 def create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs):
@@ -1406,7 +1405,7 @@ def main():
                     files_created = merge_family_jobs_csv_to_parquet(family_name)
 
                     # move all files to storage, e.g. results folder
-                    files_created = move_job_results_to_storage(family_name, job_list, storage_paths, files_created)
+                    files_created = move_job_results_to_storage(family_name, job_list, storage_paths)
 
                     # insert csv to db
                     insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
