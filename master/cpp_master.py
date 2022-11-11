@@ -37,6 +37,7 @@ import shutil
 import datetime
 import time
 import pandas as pd
+import pyarrow
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
@@ -811,53 +812,58 @@ def merge_family_jobs_csv_to_parquet(family_name):
 
     # Put csv-files in dict of lists where dict-key is csv-filename (all files have same name
     # but are in different sub-dirs (job-dirs))
-    files = pathlib.Path(sub_analysis_path).rglob("*.csv")
+    all_csv_files = pathlib.Path(sub_analysis_path).rglob("*.csv")
     filename_dict = {}
-    for file in files:
+    for file in all_csv_files:
         filename = os.path.basename(file)
         file_list = filename_dict.setdefault(filename, [])
         file_list.append(file)
 
+    # some files should not be concatenated but only one file should be copied
+    #excludes = ['_Experiment.csv']
     logging.debug(filename_dict.keys())
 
     # concat all csv-files (per filename), loop filename(key)
-    for key in filename_dict.keys():
+    for filename in filename_dict.keys():
 
         start = time.time()
 
-        files = filename_dict[key]
+        files = filename_dict[filename]
         n = 0
 
         # create concat-csv with all files with current filename, e.g experiment, nuclei, cytoplasm
-        skip_header = False
-        tmp_csvfile = os.path.join('/tmp/', key + '.merged.csv.tmp')
+        is_header_already_included = False
+        tmp_csvfile = os.path.join('/tmp/', filename + '.merged.csv.tmp')
         try:
             with open(tmp_csvfile, 'w') as csvout:
                 for file in files:
                     with open(file, "r") as f:
                         # only include header once
-                        if skip_header:
+                        if is_header_already_included:
                             next(f)
-                            skip_header = True
                         for row in f:
                             csvout.write(row)
+                            is_header_already_included = True
 
                     if n % 500 == 0:
-                        logging.info(f'{n}/{len(files)} {key}')
+                        logging.info(f'{n}/{len(files)} {filename}')
                     n = n+1
 
-            logging.info(f'done concat csv {key}')
+            logging.info(f'done concat csv {filename}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
             logging.info(f'start pd.read_csv {tmp_csvfile}')
-            df = pd.read_csv(tmp_csvfile, low_memory=False)
+            pyarrow.set_cpu_count(5)
+            #parse_options
+            df = pd.read_csv(tmp_csvfile, low_memory=False) # engine='pyarrow')
             os.remove(tmp_csvfile)
-            logging.info(f'done concat {key}')
+            logging.info(f'done concat {filename}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
-            logging.info(f'start save as parquet {key}')
+            logging.info(f'start save as parquet {filename}')
             df = to32bit(df)
-            parquetfile = os.path.join(sub_analysis_path, key + '.parquet')
+            parquetfilename = os.path.splitext(filename)[0] + '.parquet'
+            parquetfile = os.path.join(sub_analysis_path, parquetfilename)
             df.to_parquet(parquetfile)
-            logging.info(f'done save as parquet {key}')
+            logging.info(f'done save as parquet {parquetfile}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
 
         finally:
@@ -873,7 +879,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
 
     logging.info("inside move_job_results_to_storage")
 
-    files_created = {}
+    files_created = []
 
     # for each job in the family
     for job in job_list:
@@ -910,10 +916,10 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
     for result_file in pathlib.Path(sub_analysis_path).glob("*.parquet"):
 
         # keep only the filename in result
-        filename = str(result_file).replace(sub_analysis_path+'/', '')
+        filename = pathlib.Path(result_file).name
 
         # move the file to the storage location
-        shutil.move(f"{sub_analysis_path}/{result_file}", f"{storage_root['full']}/{filename}")
+        shutil.move(f"{result_file}", f"{storage_root['full']}/{filename}")
 
         # remember the file
         files_created.append(f"{filename}")
