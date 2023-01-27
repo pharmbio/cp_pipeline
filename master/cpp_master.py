@@ -269,10 +269,15 @@ spec:
 
 
 
-def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout):
+def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
 
     if cellprofiler_version is None:
         cellprofiler_version = "v4.0.7"
+    
+    if high_prioryty:
+        priority_class_name = "high_priority"
+    else:
+        priority_class_name = "low_priority"
 
     if is_debug():
        docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-latest"
@@ -416,6 +421,10 @@ def generate_random_identifier(length):
 
 def handle_new_jobs(cursor, connection, job_limit=None):
 
+    # Check if kubernetes job queue is empty
+    if not is_kubernetes_job_queue_empty():
+        return
+        
     # ask for all new analyses
     logging.info('Running analyses query.')
     query = '''
@@ -431,14 +440,17 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     # for all unstarted analyses
     for analysis in analyses:
+        
+        logging.info(f'checking analysis id { analysis["analysis_id"] }')
+        
+        # Check if kubernetes job queue is empty
+        if not is_kubernetes_job_queue_empty():
+            break
+        
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
             continue
-
-        # Check if kubernetes job queue is empty if not skip
-        if not is_kubernetes_job_queue_empty():
-            continue
-
+        
         # check the analysis type and process by analysis specific function
         if analysis['meta']['type'] == 'cellprofiler':
             handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
@@ -631,7 +643,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             logging.debug(f"job_timeout={analysis_meta.get('job_timeout')}")
 
             job_timeout = analysis_meta.get('job_timeout', "10800")
-            job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout)
+            high_priority = False
+            job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
 
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = analysis_meta.get('use_icf', False)
@@ -690,6 +703,7 @@ def is_kubernetes_job_queue_empty():
 
 
 def fetch_finished_job_families(cursor, connection, job_limit = None):
+    logging.info("Inside fetch_finished_job_families")
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
@@ -706,7 +720,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
         if job_dict['status']['conditions'] == None:
             continue
 
-        # if the job's state is compelted, save it in a new dict with job name as key
+        # if the job's state is completed, save it in a new dict with job name as key
         if job_dict['status']['conditions'][0]['type'] == 'Complete':
             finished_jobs[job_dict['metadata']['name']] = job_dict
 
@@ -820,8 +834,14 @@ def merge_family_jobs_csv_to_parquet(family_name):
         file_list.append(file)
 
     # some files should not be concatenated but only one file should be copied
-    #excludes = ['_Experiment.csv']
-    logging.debug(filename_dict.keys())
+    # They are being put here into a separate dict and then one file is renemed to another extension than csv
+    excludes = ["_experiment_", 'Experiment.csv']
+    filename_excluded = {}
+    for exclude in excludes:
+        for key in list(filename_dict.keys()):
+            if exclude in key:
+                filename_excluded[key] = filename_dict[key]
+                del filename_dict[key]
 
     # concat all csv-files (per filename), loop filename(key)
     for filename in filename_dict.keys():
@@ -854,7 +874,7 @@ def merge_family_jobs_csv_to_parquet(family_name):
             logging.info(f'start pd.read_csv {tmp_csvfile}')
             pyarrow.set_cpu_count(5)
             #parse_options
-            df = pd.read_csv(tmp_csvfile, low_memory=False) # engine='pyarrow')
+            df = pd.read_csv(tmp_csvfile, engine='pyarrow')
             os.remove(tmp_csvfile)
             logging.info(f'done concat {filename}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
@@ -865,6 +885,10 @@ def merge_family_jobs_csv_to_parquet(family_name):
             df.to_parquet(parquetfile)
             logging.info(f'done save as parquet {parquetfile}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
+
+        except Exception as e:
+            logging.error("Failed during concat csv files ")
+            logging.error("Exception", e)
 
         finally:
             if os.path.exists(tmp_csvfile):
