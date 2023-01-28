@@ -248,8 +248,8 @@ spec:
         volumeMounts:
         - mountPath: /share/mikro/IMX/MDC_pharmbio/
           name: mikroimages
-        - mountPath: /root/.kube/
-          name: kube-config
+        #- mountPath: /root/.kube/
+        #  name: kube-config
         - mountPath: /cpp_work
           name: cpp
       restartPolicy: Never
@@ -260,9 +260,9 @@ spec:
       - name: cpp
         persistentVolumeClaim:
           claimName: cpp-pvc
-      - name: kube-config
-        secret:
-          secretName: cpp-user-kube-config
+      #- name: kube-config
+      #  secret:
+      #    secretName: cpp-user-kube-config
 """)
 
 
