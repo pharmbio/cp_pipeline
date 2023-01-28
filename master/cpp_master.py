@@ -324,8 +324,8 @@ spec:
         volumeMounts:
         - mountPath: /share/mikro/
           name: mikroimages
-        - mountPath: /root/.kube/
-          name: kube-config
+        #- mountPath: /root/.kube/
+        #  name: kube-config
         - mountPath: /cpp_work
           name: cpp
         - mountPath: /share/data/external-datasets
@@ -338,9 +338,9 @@ spec:
       - name: cpp
         persistentVolumeClaim:
           claimName: cpp-pvc
-      - name: kube-config
-        secret:
-          secretName: cpp-user-kube-config
+      #- name: kube-config
+      #  secret:
+      #    secretName: cpp-user-kube-config
       - name: externalimagefiles
         persistentVolumeClaim:
           claimName: external-images-pvc
