@@ -165,34 +165,38 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
         # add filenames
         for img in sorted_imgset:
             img_filename = os.path.basename(img['path'])
-            row += f"{img_filename},"
+            row += f'\"{img_filename}\",'
 
         # add imgset info
-        row += f"{imgset_counter},1,{imgset_counter},{img['plate_barcode']},{img['site']},{img['well']},{img['plate_acquisition_id']},"
+        row += f"{imgset_counter},1,{imgset_counter},\"{img['plate_barcode']}\",{img['site']},\"{img['well']}\",{img['plate_acquisition_id']},"
 
         # add file paths
         for img in sorted_imgset:
             img_dirname = os.path.dirname(img['path'])
-            row += f"{img_dirname},"
+            row += f'\"{img_dirname}\",'
 
         # add file urls
         for img in sorted_imgset:
-            row += f"file:{img['path']},"
+            path = img['path']
+            row += f'\"file:{path}\",'
+            
 
         # add illumination file names, both as URL_ and PATH_ - these are not uniqe per image,
         # all images with same channel have the same correction image
         if use_icf:
             # First as URL
             for ch_nr,ch_name in sorted(channel_map.items()):
-                row +=  f"file:{storage_paths['full']}/ICF_{ch_name}.npy,"
+                path = f"{storage_paths['full']}/ICF_{ch_name}.npy"
+                row +=  f'file:\"{path}\",'
 
             # Also as PathName_
             for ch_nr,ch_name in sorted(channel_map.items()):
-                row +=  f"{storage_paths['full']},"
+                dir = f"{storage_paths['full']}"
+                row +=  f'"{dir}",'
 
             # Also as FileName_
             for ch_nr,ch_name in sorted(channel_map.items()):
-                row +=  f"ICF_{ch_name}.npy,"
+                row +=  f'\"ICF_{ch_name}.npy\",'
 
         # remove last comma and add a newline before adding it to the content
         content += row[:-1] + "\n"
@@ -330,8 +334,8 @@ spec:
         #  name: kube-config
         - mountPath: /cpp_work
           name: cpp
-        - mountPath: /cpp2_work
-          name: cpp2
+        #- mountPath: /cpp2_work
+        #  name: cpp2
         - mountPath: /share/data/external-datasets
           name: externalimagefiles
       restartPolicy: Never
@@ -345,9 +349,9 @@ spec:
       - name: cpp
         persistentVolumeClaim:
           claimName: cpp-pvc
-      - name: cpp2
-        persistentVolumeClaim:
-          claimName: cpp2-pvc
+      #- name: cpp2
+      #  persistentVolumeClaim:
+      #    claimName: cpp2-pvc
       #- name: kube-config
       #  secret:
       #    secretName: cpp-user-kube-config
@@ -1410,8 +1414,14 @@ def get_storage_paths_from_analysis_id(cursor, analysis_id):
     plate_barcode = analysis_info["plate_barcode"]
     acquisition_id = analysis_info["plate_acquisition_id"]
 
-    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
-    
+    storage_paths = {
+        "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
+        "mount_point":"/cpp_work/",
+        "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
+        }
+    return storage_paths
+
+
 def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
     logging.info("Inside get_storage_paths_from_sub_analysis_id")
@@ -1422,15 +1432,42 @@ def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
     acquisition_id = analysis_info["plate_acquisition_id"]
     analysis_id =  analysis_info["analyses_id"]
 
-    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
-
-def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
     storage_paths = {
         "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
         "mount_point":"/cpp_work/",
         "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
         }
     return storage_paths
+
+
+# def get_storage_paths_from_analysis_id(cursor, analysis_id):
+
+#     analysis_info = get_analysis_info(cursor, analysis_id)
+
+#     plate_barcode = analysis_info["plate_barcode"]
+#     acquisition_id = analysis_info["plate_acquisition_id"]
+
+#     return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
+    
+# def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
+
+#     logging.info("Inside get_storage_paths_from_sub_analysis_id")
+
+#     analysis_info = get_sub_analysis_info(cursor, sub_analysis_id)
+
+#     plate_barcode = analysis_info["plate_barcode"]
+#     acquisition_id = analysis_info["plate_acquisition_id"]
+#     analysis_id =  analysis_info["analyses_id"]
+
+#     return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
+
+# def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
+#     storage_paths = {
+#         "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
+#         "mount_point":"/cpp_work/",
+#         "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
+#         }
+#     return storage_paths
 
 def main():
 
