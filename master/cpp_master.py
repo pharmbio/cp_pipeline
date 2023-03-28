@@ -273,7 +273,7 @@ def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, o
 
     if cellprofiler_version is None:
         cellprofiler_version = "v4.0.7"
-    
+
     if high_prioryty:
         priority_class_name = "high_priority"
     else:
@@ -324,10 +324,14 @@ spec:
         volumeMounts:
         - mountPath: /share/mikro/
           name: mikroimages
+        - mountPath: /share/mikro2/
+          name: mikroimages2
         #- mountPath: /root/.kube/
         #  name: kube-config
         - mountPath: /cpp_work
           name: cpp
+        - mountPath: /cpp2_work
+          name: cpp2
         - mountPath: /share/data/external-datasets
           name: externalimagefiles
       restartPolicy: Never
@@ -335,9 +339,15 @@ spec:
       - name: mikroimages
         persistentVolumeClaim:
           claimName: micro-images-pvc
+      - name: mikroimages2
+        persistentVolumeClaim:
+          claimName: micro2-images-pvc
       - name: cpp
         persistentVolumeClaim:
           claimName: cpp-pvc
+      - name: cpp2
+        persistentVolumeClaim:
+          claimName: cpp2-pvc
       #- name: kube-config
       #  secret:
       #    secretName: cpp-user-kube-config
@@ -424,7 +434,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
     # Check if kubernetes job queue is empty
     if not is_kubernetes_job_queue_empty():
         return
-        
+
     # ask for all new analyses
     logging.info('Running analyses query.')
     query = '''
@@ -440,17 +450,17 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     # for all unstarted analyses
     for analysis in analyses:
-        
+
         logging.info(f'checking analysis id { analysis["analysis_id"] }')
-        
+
         # Check if kubernetes job queue is empty
         if not is_kubernetes_job_queue_empty():
             break
-        
+
         # skip analyiss if there are unmet dependencies
         if not all_dependencies_satisfied(analysis, cursor):
             continue
-        
+
         # check the analysis type and process by analysis specific function
         if analysis['meta']['type'] == 'cellprofiler':
             handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
@@ -677,6 +687,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
         mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
 
+def get_joblist():
+    # list all jobs in namespace
+    k8s_batch_api = kubernetes.client.BatchV1Api()
+    job_list = k8s_batch_api.list_namespaced_job(namespace=get_namespace())
+    return job_list
 
 def is_kubernetes_job_queue_empty():
 
@@ -699,8 +714,29 @@ def is_kubernetes_job_queue_empty():
     logging.info("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
     return is_queue_empty
 
+def delete_finished_jobpods():
+    logging.info("inside delete_finished_jobpods")
+    namespace = get_namespace()
+    k8s_batch_api = kubernetes.client.BatchV1Api()
+    k8s_core_api = kubernetes.client.CoreV1Api()
 
+    job_list = k8s_batch_api.list_namespaced_job(namespace=namespace)
 
+    for job in job_list.items:
+
+        finished = job.status.completion_time
+
+        if finished:
+
+            job_name = job.metadata.name
+            label_selector = f"job-name={job_name}"
+
+            pods = k8s_core_api.list_namespaced_pod(namespace, label_selector=label_selector)
+            for pod in pods.items:
+                logging.info(f"delete pod: {pod.metadata.name}")
+                k8s_core_api.delete_namespaced_pod(pod.metadata.name, namespace)
+
+    logging.info("done delete_finished_jobpods")
 
 def fetch_finished_job_families(cursor, connection, job_limit = None):
     logging.info("Inside fetch_finished_job_families")
@@ -725,7 +761,9 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
             finished_jobs[job_dict['metadata']['name']] = job_dict
 
         elif job_dict['status']['conditions'][0]['type'] == 'Failed':
-            mark_sub_analysis_as_failed(cursor, connection, job_dict)
+            handle_sub_analysis_error(cursor, connection, job_dict)
+            # this is maybe hacky but add failed job to finished
+            finished_jobs[job_dict['metadata']['name']] = job_dict
 
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
@@ -1065,7 +1103,7 @@ def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, stora
     connection.commit()
     logging.debug("Commited")
 
-    delete_job(sub_analysis_id)
+    delete_jobs(sub_analysis_id)
 
 def filter_list_remove_imagefiles(list):
      suffix = ('.png','.jpg','.tiff','.tif')
@@ -1092,7 +1130,7 @@ def filter_list_remove_files_suffix(input_list, suffix):
 
 
 
-# go through unfinished analyses and wrap them up if possible
+# go through unfinished analyses and wrap them up if possible (check if sub-analyses belonging to them are all finished)
 def handle_finished_analyses(cursor, connection):
 
     # fetch all unfinished analyses
@@ -1126,12 +1164,9 @@ def handle_finished_analyses(cursor, connection):
 
         sub_analyses = cursor.fetchall()
 
-
-        # init booleans
         only_finished_subs = True
         no_failed_subs = True
         file_list = []
-
         # for each sub analysis
         for sub_analysis in sub_analyses:
 
@@ -1188,11 +1223,10 @@ def handle_finished_analyses(cursor, connection):
 
 
 
-def delete_job(sub_analysis_id, leave_failed=True):
+def delete_jobs(sub_analysis_id, leave_failed=True):
 
     namespace = get_namespace()
     logging.debug('Inside delete_job')
-
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
@@ -1219,30 +1253,61 @@ def delete_job(sub_analysis_id, leave_failed=True):
 
 
 
-
-def mark_sub_analysis_as_failed(cursor, connection, job):
-
-    # get job name
+sub_anal_err_count = {}
+job_error_set = set()
+def handle_sub_analysis_error(cursor, connection, job):
+    
     job_name = job['metadata']['name']
+    
+    # only deal with error once
+    if job_name in job_error_set:
+        return
+    else:
+        job_error_set.add(job_name)
 
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
+    
+    # add error to database
+    #update_sub_anaysis_error(cursor, connection, sub_analysis_id)
+    
+    # increment error count for this sub analysis
+    sub_anal_err_count[str(sub_analysis_id)] = sub_anal_err_count.get(str(sub_analysis_id), 0) + 1
+    
+    error_count = sub_anal_err_count[str(sub_analysis_id)]   
+    logging.info("error_count: " + str(error_count))
+    
+    # get max_errors for this sub-analysis
+    max_errors = get_sub_analysis_max_errors(cursor, connection, sub_analysis_id)
 
-    # Check if failed already there
-    if has_sub_analysis_error(cursor, connection, sub_analysis_id):
-        return
+    if error_count > max_errors:
+        logging.info("max_errors: " + str(max_errors) + " is less")
 
+        # Check if failed already there
+        if not has_sub_analysis_error(cursor, connection, sub_analysis_id):
+
+            # Set error in sub analyses
+            query = """ UPDATE image_sub_analyses
+                        SET error=%s
+                        WHERE sub_id=%s
+            """
+            cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
+            connection.commit()
+
+        # delete all jobs for this sub_analysis
+        delete_jobs(sub_analysis_id)
+    else:
+        logging.info("max_errors: " + str(max_errors) + " is more")
+
+
+def update_sub_anaysis_error(cursor, connection, sub_analysis_id):
     # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
-                SET error=%s
-                WHERE sub_id=%s
-    """
+                        SET error_msg=%s
+                        WHERE sub_id=%s
+            """
     cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
     connection.commit()
-
-    delete_job(sub_analysis_id)
-
-
 
 def has_sub_analysis_error(cursor, connection, sub_analysis_id):
 
@@ -1258,6 +1323,22 @@ def has_sub_analysis_error(cursor, connection, sub_analysis_id):
         return True
     else:
         return False
+
+def get_sub_analysis_max_errors(cursor, connection, sub_analysis_id):
+
+    query = """ SELECT meta->>'max_errors' AS max_errors FROM image_sub_analyses
+                WHERE sub_id=%s
+    """
+
+    cursor.execute(query, [sub_analysis_id,])
+    row = cursor.fetchone()
+
+    if row and row['max_errors']:
+        max_errors = row['max_errors']
+    else:
+        max_errors = 0
+        
+    return int(max_errors)
 
 
 def mark_analysis_as_started(cursor, connection, analysis_id):
@@ -1329,14 +1410,8 @@ def get_storage_paths_from_analysis_id(cursor, analysis_id):
     plate_barcode = analysis_info["plate_barcode"]
     acquisition_id = analysis_info["plate_acquisition_id"]
 
-    storage_paths = {
-        "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
-        "mount_point":"/cpp_work/",
-        "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
-        }
-    return storage_paths
-
-
+    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
+    
 def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
     logging.info("Inside get_storage_paths_from_sub_analysis_id")
@@ -1347,6 +1422,9 @@ def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
     acquisition_id = analysis_info["plate_acquisition_id"]
     analysis_id =  analysis_info["analyses_id"]
 
+    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
+
+def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
     storage_paths = {
         "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
         "mount_point":"/cpp_work/",
@@ -1418,6 +1496,7 @@ def main():
                     first_reset = False
                     logging.info("Resetting debug jobs.")
 
+                delete_finished_jobpods()
 
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
 

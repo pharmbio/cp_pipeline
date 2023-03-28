@@ -41,11 +41,16 @@ spec:
           name: kube-config
         - mountPath: /cpp_work
           name: cpp
+        - mountPath: /cpp2_work
+          name: cpp2
       restartPolicy: Always
       volumes:
       - name: cpp
         persistentVolumeClaim:
           claimName: cpp-pvc
+      - name: cpp2
+        persistentVolumeClaim:
+          claimName: cpp2-pvc
       - name: kube-config
         secret:
           secretName: cpp-user-kube-config
