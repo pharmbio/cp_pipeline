@@ -179,7 +179,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
         for img in sorted_imgset:
             path = img['path']
             row += f'\"file:{path}\",'
-            
+
 
         # add illumination file names, both as URL_ and PATH_ - these are not uniqe per image,
         # all images with same channel have the same correction image
@@ -187,7 +187,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
             # First as URL
             for ch_nr,ch_name in sorted(channel_map.items()):
                 path = f"{storage_paths['full']}/ICF_{ch_name}.npy"
-                row +=  f'file:\"{path}\",'
+                row +=  f'\"file:{path}\",'
 
             # Also as PathName_
             for ch_nr,ch_name in sorted(channel_map.items()):
@@ -279,9 +279,9 @@ def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, o
         cellprofiler_version = "v4.0.7"
 
     if high_prioryty:
-        priority_class_name = "high_priority"
+        priority_class_name = "low-priority-cpp"
     else:
-        priority_class_name = "low_priority"
+        priority_class_name = "low-priority-cpp"
 
     if is_debug():
        docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-latest"
@@ -306,6 +306,7 @@ spec:
     spec:
       nodeSelector:
         pipelineNode: "true"
+      priorityClassName: {priority_class_name}
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -333,7 +334,7 @@ spec:
         #- mountPath: /root/.kube/
         #  name: kube-config
         - mountPath: /cpp_work
-          name: cpp
+          name: cpp2
         #- mountPath: /cpp2_work
         #  name: cpp2
         - mountPath: /share/data/external-datasets
@@ -346,12 +347,12 @@ spec:
       - name: mikroimages2
         persistentVolumeClaim:
           claimName: micro2-images-pvc
-      - name: cpp
-        persistentVolumeClaim:
-          claimName: cpp-pvc
-      #- name: cpp2
+      #- name: cpp
       #  persistentVolumeClaim:
-      #    claimName: cpp2-pvc
+      #    claimName: cpp-pvc
+      - name: cpp2
+        persistentVolumeClaim:
+          claimName: cpp2-pvc
       #- name: kube-config
       #  secret:
       #    secretName: cpp-user-kube-config
@@ -1260,9 +1261,9 @@ def delete_jobs(sub_analysis_id, leave_failed=True):
 sub_anal_err_count = {}
 job_error_set = set()
 def handle_sub_analysis_error(cursor, connection, job):
-    
+
     job_name = job['metadata']['name']
-    
+
     # only deal with error once
     if job_name in job_error_set:
         return
@@ -1271,16 +1272,16 @@ def handle_sub_analysis_error(cursor, connection, job):
 
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
-    
+
     # add error to database
     #update_sub_anaysis_error(cursor, connection, sub_analysis_id)
-    
+
     # increment error count for this sub analysis
     sub_anal_err_count[str(sub_analysis_id)] = sub_anal_err_count.get(str(sub_analysis_id), 0) + 1
-    
-    error_count = sub_anal_err_count[str(sub_analysis_id)]   
+
+    error_count = sub_anal_err_count[str(sub_analysis_id)]
     logging.info("error_count: " + str(error_count))
-    
+
     # get max_errors for this sub-analysis
     max_errors = get_sub_analysis_max_errors(cursor, connection, sub_analysis_id)
 
@@ -1341,7 +1342,7 @@ def get_sub_analysis_max_errors(cursor, connection, sub_analysis_id):
         max_errors = row['max_errors']
     else:
         max_errors = 0
-        
+
     return int(max_errors)
 
 
@@ -1406,7 +1407,6 @@ WHERE id={analysis_id};
     cursor.execute(query)
     connection.commit()
 
-
 def get_storage_paths_from_analysis_id(cursor, analysis_id):
 
     analysis_info = get_analysis_info(cursor, analysis_id)
@@ -1414,13 +1414,7 @@ def get_storage_paths_from_analysis_id(cursor, analysis_id):
     plate_barcode = analysis_info["plate_barcode"]
     acquisition_id = analysis_info["plate_acquisition_id"]
 
-    storage_paths = {
-        "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
-        "mount_point":"/cpp_work/",
-        "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
-        }
-    return storage_paths
-
+    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
 
 def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
 
@@ -1432,42 +1426,15 @@ def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
     acquisition_id = analysis_info["plate_acquisition_id"]
     analysis_id =  analysis_info["analyses_id"]
 
+    return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
+
+def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
     storage_paths = {
         "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
         "mount_point":"/cpp_work/",
         "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
         }
     return storage_paths
-
-
-# def get_storage_paths_from_analysis_id(cursor, analysis_id):
-
-#     analysis_info = get_analysis_info(cursor, analysis_id)
-
-#     plate_barcode = analysis_info["plate_barcode"]
-#     acquisition_id = analysis_info["plate_acquisition_id"]
-
-#     return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
-    
-# def get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id):
-
-#     logging.info("Inside get_storage_paths_from_sub_analysis_id")
-
-#     analysis_info = get_sub_analysis_info(cursor, sub_analysis_id)
-
-#     plate_barcode = analysis_info["plate_barcode"]
-#     acquisition_id = analysis_info["plate_acquisition_id"]
-#     analysis_id =  analysis_info["analyses_id"]
-
-#     return get_storage_paths(plate_barcode, acquisition_id, analysis_id)
-
-# def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
-#     storage_paths = {
-#         "full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}",
-#         "mount_point":"/cpp_work/",
-#         "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"
-#         }
-#     return storage_paths
 
 def main():
 
