@@ -15,15 +15,6 @@ spec:
       labels:
         app: cpp-master
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - brolin
       containers:
       - name: cpp-master
         image: ghcr.io/pharmbio/cpp_master:stable
@@ -31,8 +22,8 @@ spec:
         command: ["python3", "/cpp/cpp_master.py"]
         resources:
           limits:
-            cpu: 8000m
-            memory: 96Gi 
+            cpu: 6000m
+            memory: 240Gi 
           requests:
             cpu: 1000m
             memory: 2Gi 
@@ -44,6 +35,9 @@ spec:
         #- mountPath: /cpp2_work
         #  name: cpp2
       restartPolicy: Always
+      nodeSelector:
+        kubernetes.io/hostname: limpar
+      priorityClassName: normal-priority-preempt
       volumes:
      # - name: cpp
      #   persistentVolumeClaim:

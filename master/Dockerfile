@@ -11,5 +11,9 @@ RUN pip3 install psycopg2-binary \
                  pandas==1.5 \
                  pyarrow==10
 
+
+# set timezone
+ENV TZ=Europe/Stockholm
+
 # add scripts later
 COPY cpp_master.py /cpp/

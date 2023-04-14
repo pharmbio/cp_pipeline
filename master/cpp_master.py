@@ -300,6 +300,13 @@ metadata:
     app: cpp-worker
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
+  annotations:
+    pipeline_file: {pipeline_file}
+    imageset_file: {imageset_file}
+    output_path: {output_path}
+    job_timeout: {job_timeout}
+    docker_image: {docker_image}
+    
 spec:
   backoffLimit: 1
   template:
@@ -859,7 +866,7 @@ def to32bit(t):
 
 # goes through all jobs of a family i.e. merges the csvs with the same names into
 # a single resulting csv file for the entire family, e.g. ..._Experiment.csv, ..._Image.csv
-def merge_family_jobs_csv_to_parquet(family_name):
+def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 
     logging.info("Inside merge_family_jobs_csv_to_parquet")
 
@@ -930,8 +937,15 @@ def merge_family_jobs_csv_to_parquet(family_name):
             logging.info(f"elapsed: {(time.time() - start):.3f}")
 
         except Exception as e:
-            logging.error("Failed during concat csv files ")
             logging.error("Exception", e)
+            logging.error("Failed during concat csv files, error ")
+            
+            set_sub_analysis_error(cursor, connection, analysis_sub_id)
+            
+            # delete all jobs for this sub_analysis
+            delete_jobs(analysis_sub_id)
+            
+            
 
         finally:
             if os.path.exists(tmp_csvfile):
@@ -1215,18 +1229,20 @@ def handle_finished_analyses(cursor, connection):
         # if any sub analysis failed, mark the analysis as failed as well
         elif not no_failed_subs:
 
-            # create timestamp
-            error = str(datetime.datetime.now())
+            set_analysis_error(analysis['id'], cursor, connection )
 
-            # construct query
-            query = f""" UPDATE image_analyses
+
+def set_analysis_error(analysis_id, cursor, connection):
+    # create timestamp
+    error_time = str(datetime.datetime.now())
+
+    # construct query
+    query = f""" UPDATE image_analyses
                         SET error=%s
                         WHERE id=%s
             """
-            cursor.execute(query, [error, analysis['id']])
-            connection.commit()
-
-
+    cursor.execute(query, [error_time, analysis_id])
+    connection.commit()
 
 def delete_jobs(sub_analysis_id, leave_failed=True):
 
@@ -1254,7 +1270,7 @@ def delete_jobs(sub_analysis_id, leave_failed=True):
                 leave_failed):
                 continue # do nothing
             else:
-                response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Foreground') # background is also possible, no idea about difference
+                response = k8s_batch_api.delete_namespaced_job(job_name, namespace, propagation_policy='Background') # background is also possible, no idea about difference
 
 
 
@@ -1273,9 +1289,6 @@ def handle_sub_analysis_error(cursor, connection, job):
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
 
-    # add error to database
-    #update_sub_anaysis_error(cursor, connection, sub_analysis_id)
-
     # increment error count for this sub analysis
     sub_anal_err_count[str(sub_analysis_id)] = sub_anal_err_count.get(str(sub_analysis_id), 0) + 1
 
@@ -1290,22 +1303,22 @@ def handle_sub_analysis_error(cursor, connection, job):
 
         # Check if failed already there
         if not has_sub_analysis_error(cursor, connection, sub_analysis_id):
-
-            # Set error in sub analyses
-            query = """ UPDATE image_sub_analyses
-                        SET error=%s
-                        WHERE sub_id=%s
-            """
-            cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
-            connection.commit()
-
+            set_sub_analysis_error(cursor, connection, sub_analysis_id, job)
+            
         # delete all jobs for this sub_analysis
         delete_jobs(sub_analysis_id)
     else:
         logging.info("max_errors: " + str(max_errors) + " is more")
+        add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
 
 
-def update_sub_anaysis_error(cursor, connection, sub_analysis_id):
+def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=None):
+    
+    message = f"sub_analysis_id: {sub_analysis_id}\n"
+    
+    if job:
+        message += f"cp_log: {sub_analysis_id}"
+    
     # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
                         SET error_msg=%s
@@ -1313,6 +1326,20 @@ def update_sub_anaysis_error(cursor, connection, sub_analysis_id):
             """
     cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
     connection.commit()
+    
+
+def set_sub_analysis_error(cursor, connection, sub_analysis_id, job=None):
+    
+    add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
+    
+    # Set error in sub analyses
+    query = """ UPDATE image_sub_analyses
+                        SET error=%s
+                        WHERE sub_id=%s
+            """
+    cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
+    connection.commit()
+
 
 def has_sub_analysis_error(cursor, connection, sub_analysis_id):
 
@@ -1515,7 +1542,7 @@ def main():
                     storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
 
                     # merge all job csvs into family csv
-                    files_created = merge_family_jobs_csv_to_parquet(family_name)
+                    files_created = merge_family_jobs_csv_to_parquet(family_name, cursor, connection)
 
                     # move all files to storage, e.g. results folder
                     files_created = move_job_results_to_storage(family_name, job_list, storage_paths)
