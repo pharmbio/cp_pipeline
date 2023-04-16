@@ -9,6 +9,7 @@ echo "JOB_TIMEOUT=$JOB_TIMEOUT" | tee -a "$logfile"
 echo "PIPELINE_FILE=$PIPELINE_FILE" | tee -a "$logfile"
 echo "IMAGESET_FILE=$IMAGESET_FILE" | tee -a "$logfile"
 echo "OUTPUT_PATH=$OUTPUT_PATH" | tee -a "$logfile"
+echo "NODE_NAME"=$NODE_NAME" | tee -a "$logfile"
 
 mkdir -p "$OUTPUT_PATH"
 

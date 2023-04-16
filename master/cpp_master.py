@@ -301,11 +301,11 @@ metadata:
     analysis_id: "{analysis_id}"
     sub_analysis_id: "{sub_analysis_id}"
   annotations:
-    pipeline_file: {pipeline_file}
-    imageset_file: {imageset_file}
-    output_path: {output_path}
-    job_timeout: {job_timeout}
-    docker_image: {docker_image}
+    pipeline_file: "{pipeline_file}"
+    imageset_file: "{imageset_file}"
+    output_path: "{output_path}"
+    job_timeout: "{job_timeout}"
+    docker_image: "{docker_image}"
     
 spec:
   backoffLimit: 1
@@ -330,6 +330,10 @@ spec:
           value: "{job_timeout}"
         - name: OMP_NUM_THREADS # This is to prevent multithreading of cellprofiler
           value: "1"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         #
         # I specify default resources in namespace file now
         #
@@ -1314,18 +1318,25 @@ def handle_sub_analysis_error(cursor, connection, job):
 
 def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=None):
     
-    message = f"sub_analysis_id: {sub_analysis_id}\n"
+    return
+    # message = f"sub_analysis_id: {sub_analysis_id}\n"
     
-    if job:
-        message += f"cp_log: {sub_analysis_id}"
+    # if job:      
+    #     pipeline_file: {pipeline_file}
+    #     imageset_file: {imageset_file}
+    #     output_path: {output_path}
+    #     job_timeout: {job_timeout}
+    #     docker_image: {docker_image}
+        
+    #     message += f"cp_log: {sub_analysis_id}"
     
-    # Set error in sub analyses
-    query = """ UPDATE image_sub_analyses
-                        SET error_msg=%s
-                        WHERE sub_id=%s
-            """
-    cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
-    connection.commit()
+    # # Set error in sub analyses
+    # query = """ UPDATE image_sub_analyses
+    #                     SET error_msg=%s
+    #                     WHERE sub_id=%s
+    #         """
+    # cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
+    # connection.commit()
     
 
 def set_sub_analysis_error(cursor, connection, sub_analysis_id, job=None):
