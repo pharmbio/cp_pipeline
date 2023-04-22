@@ -977,7 +977,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
             logging.debug("copy file: " + str(result_file))
 
             # exclude files with these extensions
-            if result_file.suffix in ['.csv'] or pathlib.Path.is_dir(result_file):
+            if result_file.suffix in ['.csv', '.log'] or pathlib.Path.is_dir(result_file):
                 logging.debug("continue")
                 continue
 
@@ -1315,6 +1315,7 @@ def handle_sub_analysis_error(cursor, connection, job):
         logging.info("max_errors: " + str(max_errors) + " is more")
         add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
 
+    logging.info("done with handle_sub_analysis_error")
 
 def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=None):
     

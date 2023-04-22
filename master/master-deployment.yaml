@@ -36,7 +36,7 @@ spec:
         #  name: cpp2
       restartPolicy: Always
       nodeSelector:
-        kubernetes.io/hostname: limpar
+        kubernetes.io/hostname: brolin
       priorityClassName: normal-priority-preempt
       volumes:
      # - name: cpp

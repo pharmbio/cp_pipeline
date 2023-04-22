@@ -14,6 +14,7 @@ RUN pip3 install psycopg2-binary \
 
 # set timezone
 ENV TZ=Europe/Stockholm
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# add scripts later
+# add scripts last
 COPY cpp_master.py /cpp/
