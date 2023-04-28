@@ -279,7 +279,7 @@ def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, o
         cellprofiler_version = "v4.0.7"
 
     if high_prioryty:
-        priority_class_name = "low-priority-cpp"
+        priority_class_name = "high-priority-cpp"
     else:
         priority_class_name = "low-priority-cpp"
 
@@ -469,8 +469,10 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
         logging.info(f'checking analysis id { analysis["analysis_id"] }')
 
+        priority = analysis['meta'].get('priority', 0)
+
         # Check if kubernetes job queue is empty
-        if not is_kubernetes_job_queue_empty():
+        if not is_kubernetes_job_queue_empty() or priority != 1:
             break
 
         # skip analyiss if there are unmet dependencies
@@ -669,7 +671,9 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             logging.debug(f"job_timeout={analysis_meta.get('job_timeout')}")
 
             job_timeout = analysis_meta.get('job_timeout', "10800")
-            high_priority = False
+            priority = analysis_meta.get('priority', 0)
+            if priority == 1:
+                high_priority = True
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
 
             # Check if icf headers should be added to imgset csv file, default is False
@@ -889,7 +893,7 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 
     # some files should not be concatenated but only one file should be copied
     # They are being put here into a separate dict and then one file is renemed to another extension than csv
-    excludes = ["_experiment_", 'Experiment.csv']
+    excludes = ["_experiment_", "_experiment.csv", 'Experiment.csv']
     filename_excluded = {}
     for exclude in excludes:
         for key in list(filename_dict.keys()):
@@ -948,8 +952,6 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
             
             # delete all jobs for this sub_analysis
             delete_jobs(analysis_sub_id)
-            
-            
 
         finally:
             if os.path.exists(tmp_csvfile):
