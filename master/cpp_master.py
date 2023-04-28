@@ -306,7 +306,7 @@ metadata:
     output_path: "{output_path}"
     job_timeout: "{job_timeout}"
     docker_image: "{docker_image}"
-    
+
 spec:
   backoffLimit: 1
   template:
@@ -447,10 +447,6 @@ def generate_random_identifier(length):
 
 def handle_new_jobs(cursor, connection, job_limit=None):
 
-    # Check if kubernetes job queue is empty
-    if not is_kubernetes_job_queue_empty():
-        return
-
     # ask for all new analyses
     logging.info('Running analyses query.')
     query = '''
@@ -472,7 +468,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
         priority = analysis['meta'].get('priority', 0)
 
         # Check if kubernetes job queue is empty
-        if not is_kubernetes_job_queue_empty() or priority != 1:
+        if not is_kubernetes_job_queue_empty() and priority != 1:
             break
 
         # skip analyiss if there are unmet dependencies
@@ -947,9 +943,9 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
         except Exception as e:
             logging.error("Exception", e)
             logging.error("Failed during concat csv files, error ")
-            
+
             set_sub_analysis_error(cursor, connection, analysis_sub_id)
-            
+
             # delete all jobs for this sub_analysis
             delete_jobs(analysis_sub_id)
 
@@ -1310,7 +1306,7 @@ def handle_sub_analysis_error(cursor, connection, job):
         # Check if failed already there
         if not has_sub_analysis_error(cursor, connection, sub_analysis_id):
             set_sub_analysis_error(cursor, connection, sub_analysis_id, job)
-            
+
         # delete all jobs for this sub_analysis
         delete_jobs(sub_analysis_id)
     else:
@@ -1320,19 +1316,19 @@ def handle_sub_analysis_error(cursor, connection, job):
     logging.info("done with handle_sub_analysis_error")
 
 def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=None):
-    
+
     return
     # message = f"sub_analysis_id: {sub_analysis_id}\n"
-    
-    # if job:      
+
+    # if job:
     #     pipeline_file: {pipeline_file}
     #     imageset_file: {imageset_file}
     #     output_path: {output_path}
     #     job_timeout: {job_timeout}
     #     docker_image: {docker_image}
-        
+
     #     message += f"cp_log: {sub_analysis_id}"
-    
+
     # # Set error in sub analyses
     # query = """ UPDATE image_sub_analyses
     #                     SET error_msg=%s
@@ -1340,12 +1336,12 @@ def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=N
     #         """
     # cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
     # connection.commit()
-    
+
 
 def set_sub_analysis_error(cursor, connection, sub_analysis_id, job=None):
-    
+
     add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
-    
+
     # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
                         SET error=%s
