@@ -670,6 +670,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             priority = analysis_meta.get('priority', 0)
             if priority == 1:
                 high_priority = True
+            else:
+                high_priority = False
             job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
 
             # Check if icf headers should be added to imgset csv file, default is False
