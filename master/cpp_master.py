@@ -270,7 +270,22 @@ spec:
 """)
 
 
+def get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
 
+    if cellprofiler_version is None:
+        cellprofiler_version = "v4.0.7"
+
+    if high_prioryty:
+        priority_class_name = "high-priority-cpp"
+    else:
+        priority_class_name = "low-priority-cpp"
+
+    if is_debug():
+       docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-latest"
+    else:
+       docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-stable"
+
+    return docker_image
 
 
 def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
@@ -477,7 +492,10 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
         # check the analysis type and process by analysis specific function
         if analysis['meta']['type'] == 'cellprofiler':
-            handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
+            if analysis['meta']['run_on_uppmax']:
+                handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit)
+            else:
+                handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
 
         elif analysis['meta']['type'] == 'jupyter_notebook':
             handle_anlysis_jupyter_notebook(analysis, cursor, connection)
@@ -704,6 +722,168 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         # when all chunks of the sub analysis are sent in, mark the sub analysis as started
         mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
         mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+
+def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=None):
+
+        logging.info("analysis: " + str(analysis))
+
+        analysis_id = analysis["analysis_id"]
+        sub_analysis_id = analysis["sub_id"]
+
+        # fetch the channel map for the acqusition
+        logging.info('Running channel map query.')
+        cursor.execute(f'''
+                            SELECT *
+                            FROM channel_map
+                            WHERE map_id=(SELECT channel_map_id
+                                          FROM plate_acquisition
+                                          WHERE id={analysis['plate_acquisition_id']})
+                           ''')
+        channel_map_res = cursor.fetchall()
+        channel_map = {}
+        for channel in channel_map_res:
+            channel_map[channel['channel']] = channel['dye']
+
+        # make sure channel map is populated
+        if len(channel_map) == 0:
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
+
+        # get analysis settings
+        try:
+            analysis_meta = analysis['meta']
+        except KeyError:
+            logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
+
+        # check if sites filter is included
+        site_filter = None
+        if 'site_filter' in analysis_meta:
+            site_filter = list(analysis_meta['site_filter'])
+
+        # check if well filter is included
+        well_filter = None
+        if 'well_filter' in analysis_meta:
+            well_filter = list(analysis_meta['well_filter'])
+
+
+        # fetch all images belonging to the plate acquisition
+        logging.info('Fetching images belonging to plate acqusition.')
+
+        query = ("SELECT *"
+                 " FROM images_all_view"
+                 " WHERE plate_acquisition_id=%s")
+
+        if site_filter:
+            query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
+
+        if well_filter:
+            query += ' AND well IN (' + ','.join("'{0}'".format(w) for w in well_filter) + ")"
+
+
+        query += " ORDER BY timepoint, well, site, channel"
+
+        logging.info("query: " + query)
+
+        cursor.execute(query, (analysis['plate_acquisition_id'],))
+        imgs = cursor.fetchall()
+
+        imgsets = {}
+        img_infos = {}
+        for img in imgs:
+
+            # readability
+            imgset_id = f"{img['well']}-{img['site']}"
+
+            # if it has been seen before
+            try:
+                imgsets[imgset_id] += [img['path']]
+                img_infos[imgset_id] += [img]
+            # if it has not been seen before
+            except KeyError:
+                imgsets[imgset_id] = [img['path']]
+                img_infos[imgset_id] = [img]
+
+
+        # get cellprofiler-version
+        try:
+            cellprofiler_version = analysis_meta['cp_version']
+        except KeyError:
+            logging.error(f"Unable to get cellprofiler_version details from analysis entry: sub_id={sub_analysis_id}")
+            cellprofiler_version = None
+
+        # check if all imgsets should be in the same job
+        try:
+            chunk_size = analysis_meta['batch_size']
+            pipeline_file = '/cpp_work/pipelines/' + analysis_meta['pipeline_file']
+        except KeyError:
+            logging.error(f"Unable to get cellprofiler details from analysis entry: sub_id={sub_analysis_id}")
+            chunk_size = 1
+        if chunk_size <= 0:
+            # put them all in the same job if chunk size is less or equal to zero
+            chunk_size = max(1, len(imgsets))
+
+
+        # calculate the number of chunks that will be created
+        n_imgsets = len(imgsets)
+        n_jobs_unrounded = n_imgsets / chunk_size
+        n_jobs = math.ceil(n_jobs_unrounded)
+
+        # get common output for all sub analysis
+        storage_paths = get_storage_paths_from_analysis_id(cursor, analysis_id)
+        # Make sure output dir exists
+        os.makedirs(f"{storage_paths['full']}", exist_ok=True)
+
+
+        # create chunks and submit as separate jobs
+        random_identifier = generate_random_identifier(8)
+        all_cmds = []
+        for i,imgset_chunk in enumerate(chunk_dict(img_infos, chunk_size)):
+
+            # generate names
+            job_number = i
+            job_id = create_job_id(analysis_id, sub_analysis_id, random_identifier, job_number, n_jobs)
+            imageset_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.csv"
+            job_yaml_file = f"/cpp_work/input/{sub_analysis_id}/cpp-worker-job-{job_id}.yaml"
+            output_path = f"/cpp_work/output/{sub_analysis_id}/cpp-worker-job-{job_id}/"
+            job_name = f"cpp-worker-job-{job_id}"
+
+            logging.debug(f"job_timeout={analysis_meta.get('job_timeout')}")
+
+            job_timeout = analysis_meta.get('job_timeout', "10800")
+            priority = analysis_meta.get('priority', 0)
+            if priority == 1:
+                high_priority = True
+            else:
+                high_priority = False
+
+            #job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
+            cellprofiler_cmd = get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
+
+            logging.info(f"cellprofiler_cmd {cellprofiler_cmd}")
+
+            # Check if icf headers should be added to imgset csv file, default is False
+            use_icf = analysis_meta.get('use_icf', False)
+            logging.debug("use_icf" + str(use_icf))
+             # generate cellprofiler imgset file for this imgset
+            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
+
+            # create a folder for the file if needed
+            os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
+            # write csv
+            with open(imageset_file, 'w') as file:
+                file.write(imageset_content)
+
+            all_cmds.append(cellprofiler_cmd)
+
+            if job_limit is not None and i >= (job_limit-1):
+                print("exit here")
+                break
+
+        # when all chunks of the sub analysis are sent in, mark the sub analysis as started
+        mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
+        mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+
+        logging.info(f"all_smds: {all_cmds}")
+
 
 def get_joblist():
     # list all jobs in namespace
@@ -1482,13 +1662,15 @@ def main():
         # set up logging to file
         now = datetime.datetime.now()
         now_string = now.strftime("%Y-%m-%d_%H.%M.%S.%f")
-        is_debug_version = ""
-        if is_debug():
-            is_debug_version = "debug."
-        logfile_name = "/cpp_work/logs/cpp_master." + is_debug_version + now_string + ".log"
-        log_level = logging.DEBUG if is_debug() else logging.INFO
 
-        print ("is_debug" + str(is_debug()))
+        print (f"is_debug {is_debug()}")
+
+        log_prefix = ""
+        if is_debug():
+            log_prefix = "debug."
+
+        logfile_name = "/cpp_work/logs/cpp_master." + log_prefix + now_string + ".log"
+        log_level = logging.DEBUG if is_debug() else logging.INFO
 
         logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                             datefmt='%Y-%m-%d:%H:%M:%S',
