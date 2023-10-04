@@ -15,6 +15,7 @@ mkdir -p "$OUTPUT_PATH"
 
 # launch cellprofiler set timeout because some jobs never finish (analyses on images never converge)
 timeout $JOB_TIMEOUT \
+nice -n 19 \
 cellprofiler \
 -r \
 -c \
