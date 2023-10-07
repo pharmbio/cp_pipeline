@@ -10,7 +10,7 @@ RUN python3.8 -m pip install cellpose==2.0.5
 RUN mkdir -p /CellProfiler/plugins
 
 # download the CellPose plugin
-RUN cd /CellProfiler/plugins && wget https://raw.githubusercontent.com/CellProfiler/CellProfiler-plugins/master/runcellpose.py
+RUN cd /CellProfiler/plugins && wget https://raw.githubusercontent.com/CellProfiler/CellProfiler-plugins/master/active_plugins/runcellpose.py 
 
 # Copy pre-built cellpose models
 COPY ./models/ /root/.cellpose/models/
