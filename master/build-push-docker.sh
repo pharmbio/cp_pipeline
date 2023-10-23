@@ -10,7 +10,4 @@ fi
 docker build -t ghcr.io/pharmbio/cpp_master:stable .
 docker push ghcr.io/pharmbio/cpp_master:stable
 
-#docker build -t pharmbio/cpp_master:latest .
-#docker push pharmbio/cpp_master:latest
-
 

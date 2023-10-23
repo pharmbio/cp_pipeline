@@ -32,8 +32,9 @@ spec:
           name: kube-config
         - mountPath: /cpp_work
           name: cpp2
-        #- mountPath: /cpp2_work
-        #  name: cpp2
+        - name: uppmax-ssh
+          mountPath: "/root/.ssh/"
+          readOnly: true
       restartPolicy: Always
       nodeSelector:
         kubernetes.io/hostname: brolin
@@ -48,3 +49,6 @@ spec:
       - name: kube-config
         secret:
           secretName: cpp-user-kube-config
+      - name: git-secret
+        secret:
+          secretName: uppmax-ssh

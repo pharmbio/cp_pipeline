@@ -458,7 +458,6 @@ def load_cpp_config():
     cpp_config['uppmax_user'] = cpp_config['uppmax']['user']
     cpp_config['uppmax_hostname'] = cpp_config['uppmax']['hostname']
 
-
     return cpp_config
 
 
@@ -1133,7 +1132,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
         if os.path.exists(sub_analysis_out_path):
             all_sub_analyses_jobs = get_all_dirs(sub_analysis_out_path)
             for job in all_sub_analyses_jobs:
-                
+
                 job_path = os.path.join(sub_analysis_out_path, job)
 
                 logging.info(f'job_path {job_path}')
@@ -1181,12 +1180,12 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
             # then all jobs in this family are finished and ready to be processed
             finished_families[family_name] = job_list
 
-        
+
         # update status
         status = f"{len(job_list)} / {family_job_count} jobs finished"
         sub_id = job_list[0]['metadata']['sub_id']
         update_sub_analysis_status_to_db(connection, cursor, sub_id, status)
-        
+
 
 
     logging.info("Finished families: " + str(len(finished_families)))
