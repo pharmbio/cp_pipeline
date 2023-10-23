@@ -38,6 +38,7 @@ import datetime
 import time
 import pandas as pd
 import pyarrow
+import subprocess
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
@@ -285,7 +286,27 @@ def get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_fi
     else:
        docker_image="ghcr.io/pharmbio/cpp_worker:" + cellprofiler_version + "-stable"
 
-    return docker_image
+    cmd = (f' timeout {job_timeout}'
+           f' cellprofiler'
+           f' -r'
+           f' -c'
+           f' -p {pipeline_file}'
+           f' --data-file {imageset_file}'
+           f' -o {output_path}'
+           f' --plugins-directory /CellProfiler/plugins')
+
+
+    params = (f'{docker_image}'
+              f' {pipeline_file}'
+              f' {imageset_file}'
+              f' {output_path}'
+              f' {job_name}'
+              f' {analysis_id}'
+              f' {sub_analysis_id}'
+              f' {job_timeout}'
+              f' {high_prioryty}')
+
+    return cmd
 
 
 def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
@@ -432,6 +453,10 @@ def load_cpp_config():
     secret = kubernetes.client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
     postgres_password = base64.b64decode(secret.data['password.postgres']).decode().strip()
     cpp_config['postgres']['password'] = postgres_password
+
+    # fetch uppmax secrets
+    cpp_config['uppmax_user'] = cpp_config['uppmax']['user']
+    cpp_config['uppmax_hostname'] = cpp_config['uppmax']['hostname']
 
 
     return cpp_config
@@ -790,6 +815,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         img_infos = {}
         for img in imgs:
 
+            logging.debug(f'img: {img["path"]}')
             # readability
             imgset_id = f"{img['well']}-{img['site']}"
 
@@ -879,11 +905,84 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
                 break
 
         # when all chunks of the sub analysis are sent in, mark the sub analysis as started
-        mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
-        mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+        #mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
+        #mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+
+
+        sub_anal_out_dir = f"/cpp_work/input/{sub_analysis_id}"
+        with open(f"{sub_anal_out_dir}/cmds.txt", "w") as file:
+            for item in all_cmds:
+                file.write(item + "\n")
 
         logging.info(f"all_smds: {all_cmds}")
 
+        sub_type = analysis_meta.get('sub_type', "undefifed")
+        logging.debug("sub_type" + str(use_icf))
+
+        job_id = submit_sbatch_to_uppmax(sub_analysis_id, sub_type)
+
+        update_sub_analysis_status_to_db(connection, cursor, sub_analysis_id, f"submitted, job_id={job_id}")
+
+        # when all chunks of the sub analysis are sent in, mark the sub analysis as started
+        mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
+        mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+
+
+def submit_sbatch_to_uppmax(sub_id, sub_type):
+
+    logging.info(f"inside submit_sbatch_to_uppmax: {sub_id}, sub_type {sub_type}")
+
+    job_id = None
+
+    max_errors = 10
+
+    if sub_type == "icf":
+        nHours = 10
+        nNodes = 1
+    else:
+        nHours = 96
+        nNodes = 16
+
+    cpp_config = load_cpp_config()
+
+    # Define your command as a string
+    cmd = (f"ssh -o StrictHostKeyChecking=no"
+           f" {cpp_config['uppmax_user']}@{cpp_config['uppmax_hostname']}"
+           f" sbatch"
+	       f" -M snowy"
+	       f" -n {nNodes}"
+	       f" -t {nHours}:00:00"
+	       f" --output={sub_id}-slurm.%j.out"
+           f" --error={sub_id}-slurm.%j.out"
+	       f" -A uppmax2023-2-16"
+	       f" -D /proj/uppmax2023-2-16/cpp_uppmax"
+	       f" run_cellprofiler_apptainer.sh"
+	       f" -d /cpp_work/input/{sub_id}"
+           f" -w {nNodes}"
+           f" -e {max_errors}"
+        )
+
+    logging.info(f"cmd: {cmd}")
+
+    try:
+        # Execute the command and capture the output
+        output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True)
+        logging.info(f"stdout: {output}")
+
+        # Define a regular expression pattern to match the batch job ID
+        pattern = r'Submitted batch job (\d+)'
+
+        match = re.search(pattern, output)
+        if match:
+            job_id = match.group(1)
+        else:
+            logging.warning(f"No batch job ID found in the std out, stdout: {output}")
+
+    except subprocess.CalledProcessError as e:
+        error_message = f"Error: {e.returncode}\n{e.output}"
+        logging.error(error_message)
+
+    return job_id
 
 def get_joblist():
     # list all jobs in namespace
@@ -997,6 +1096,97 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 
             # then all jobs in this family are finished and ready to be processed
             finished_families[family_name] = job_list
+
+
+    logging.info("Finished families: " + str(len(finished_families)))
+    return finished_families
+
+def get_all_dirs(path):
+    return [d.name for d in pathlib.Path(path).iterdir() if d.is_dir()]
+
+def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
+    logging.info("Inside fetch_finished_job_families_uppmax")
+
+    sql = (f"""
+            SELECT *
+            FROM image_sub_analyses
+            WHERE finish IS null
+            AND error IS null
+            AND meta->>'run_on_uppmax' IS NOT null
+            """)
+
+    logging.debug("sql" + sql)
+
+    cursor.execute(sql)
+
+    unfinished_sub_analyses = cursor.fetchall()
+
+    finished_jobs = {}
+    for sub_analysis in unfinished_sub_analyses:
+        sub_id = sub_analysis['sub_id']
+        logging.info(f"sub_analyses: {sub_id}")
+
+        sub_analysis_out_path = f"/cpp_work/output/{sub_id}"
+        logging.info(f'sub_analysis_out_path {sub_analysis_out_path}')
+
+        # list all jobs in output
+        if os.path.exists(sub_analysis_out_path):
+            all_sub_analyses_jobs = get_all_dirs(sub_analysis_out_path)
+            for job in all_sub_analyses_jobs:
+                
+                job_path = os.path.join(sub_analysis_out_path, job)
+
+                logging.info(f'job_path {job_path}')
+
+                if os.path.exists(os.path.join(job_path, "error")):
+                    # skip this one
+                    logging.debug(f"Error job {job}")
+                elif os.path.exists(os.path.join(job_path, "finished")):
+                    finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id}}
+                    logging.debug(f"Job finished: {job}")
+
+    logging.info("Finished jobs done " + str(len(finished_jobs)))
+
+    # continue processing the finished jobs
+    job_buckets = {}
+    for job_name,job in finished_jobs.items():
+
+        # get the family name
+        job_family = get_job_family_from_job_name(job_name)
+
+        # append all jobs with the same family name into a list
+        try:
+            job_buckets[job_family].append(job)
+
+        except KeyError:
+            job_buckets[job_family] = [job]
+
+
+    logging.info("Finished buckets: " + str(len(job_buckets)))
+
+    # fetch each familys total number of jobs and compare with the total count
+    family_job_count = {}
+    finished_families = {}
+    for family_name, job_list in job_buckets.items():
+
+        logging.info(f'job_list {job_list}')
+
+        # save the total job count for this family
+        family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
+        logging.info(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
+        # check if there are as many finished jobs as the total job count for the family
+        # for debug reasons we also check if the job limit is reached
+        if family_job_count == len(job_list) or (job_limit is not None and len(job_list) == job_limit):
+
+            # then all jobs in this family are finished and ready to be processed
+            finished_families[family_name] = job_list
+
+        
+        # update status
+        status = f"{len(job_list)} / {family_job_count} jobs finished"
+        sub_id = job_list[0]['metadata']['sub_id']
+        update_sub_analysis_status_to_db(connection, cursor, sub_id, status)
+        
 
 
     logging.info("Finished families: " + str(len(finished_families)))
@@ -1258,6 +1448,25 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
         logging.error("plate_info is None, sub_id not found, should not be able to happen....")
 
     return plate_info
+
+
+def update_sub_analysis_status_to_db(connection, cursor, sub_analysis_id, status):
+
+    logging.debug("inside update_sub_analysis_status_to_db")
+
+    # update status
+    query = """UPDATE image_sub_analyses
+               SET meta = meta || %s
+               WHERE sub_id=%s
+            """
+
+    status = f'{{"status": "{status}"}}'
+
+    logging.debug("query:" + str(query))
+    cursor.execute(query, [status, sub_analysis_id] )
+    logging.debug("Before commit")
+    connection.commit()
+    logging.debug("Commited")
 
 
 def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_root,  file_list):
@@ -1726,6 +1935,8 @@ def main():
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
 
                 finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
+                finished_families_uppmax = fetch_finished_job_families_uppmax(cursor, connection, job_limit = job_limit)
+                finished_families.update(finished_families_uppmax)
 
                 # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
                 for family_name, job_list in finished_families.items():
@@ -1758,6 +1969,10 @@ def main():
                 if connection:
                     cursor.close()
                     connection.close()
+
+
+            #print('Exit because single run debug')
+            #exit()
 
             sleeptime = 20
             logging.info(f"Going to sleep for {sleeptime} sec")
