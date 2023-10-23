@@ -1,9 +1,8 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 # update and install
 RUN apt update && \
-    apt upgrade -y && \
-    apt install -y python3 python3-pip vim
+    apt install -y python3 python3-pip vim ssh
 
 # install python packages
 RUN pip3 install psycopg2-binary \
