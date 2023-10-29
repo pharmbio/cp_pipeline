@@ -15,6 +15,14 @@ spec:
       labels:
         app: cpp-master
     spec:
+#      initContainers:
+#      - name: volume-permissions
+#        image: busybox
+#        command: ["/bin/sh"]
+#        args: ["-c", "chmod 600 /root/.ssh/id_rsa"]
+#        volumeMounts:
+#        - name: uppmax-ssh
+#          mountPath: /root/.ssh/
       containers:
       - name: cpp-master
         image: ghcr.io/pharmbio/cpp_master:stable
@@ -32,9 +40,9 @@ spec:
           name: kube-config
         - mountPath: /cpp_work
           name: cpp2
-        - name: uppmax-ssh
-          mountPath: "/root/.ssh/"
-          readOnly: true
+        - mountPath: /root/.ssh/id_rsa
+          subPath: id_rsa
+          name: uppmax-ssh  
       restartPolicy: Always
       nodeSelector:
         kubernetes.io/hostname: brolin
@@ -49,6 +57,7 @@ spec:
       - name: kube-config
         secret:
           secretName: cpp-user-kube-config
-      - name: git-secret
+      - name: uppmax-ssh
         secret:
           secretName: uppmax-ssh
+          defaultMode: 384

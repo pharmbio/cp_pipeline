@@ -499,14 +499,24 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     analyses = cursor.fetchall()
 
-    # for all unstarted analyses
+    # first run through all and check for unstarted on uppmax
+    for analysis in analyses:
+        if analysis['meta']['type'] == 'cellprofiler':
+            if 'run_on_uppmax' in analysis['meta'] and analysis['meta']['run_on_uppmax'] == True:
+                logging.info(f'is uppmax analysis: {analysis["analysis_id"]}')
+                # only run analyses that have satisfied dependencies
+                if all_dependencies_satisfied(analysis, cursor):
+                    handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit)
+
+
+    # now check for unstarted that should run on cluster
     for analysis in analyses:
 
         logging.info(f'checking analysis id { analysis["analysis_id"] }')
 
         priority = analysis['meta'].get('priority', 0)
 
-        # Check if kubernetes job queue is empty
+        # Check if kubernetes job queue is empty or priority is highest
         if not is_kubernetes_job_queue_empty() and priority != 1:
             break
 
@@ -515,18 +525,13 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             continue
 
         # check the analysis type and process by analysis specific function
-        if analysis['meta']['type'] == 'cellprofiler':
-            if analysis['meta']['run_on_uppmax']:
-                handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit)
-            else:
+        if 'run_on_uppmax' not in analysis['meta'] or analysis['meta']['run_on_uppmax'] == False:
+            if analysis['meta']['type'] == 'cellprofiler':
                 handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
-
-        elif analysis['meta']['type'] == 'jupyter_notebook':
-            handle_anlysis_jupyter_notebook(analysis, cursor, connection)
-
-        else:
-            raise ValueError(f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
-
+            elif analysis['meta']['type'] == 'jupyter_notebook':
+                handle_anlysis_jupyter_notebook(analysis, cursor, connection)
+            else:
+                raise ValueError(f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
 
 
 def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
@@ -883,7 +888,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             #job_yaml = make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
             cellprofiler_cmd = get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_priority)
 
-            logging.info(f"cellprofiler_cmd {cellprofiler_cmd}")
+            #§§logging.info(f"cellprofiler_cmd {cellprofiler_cmd}")
 
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = analysis_meta.get('use_icf', False)
@@ -913,18 +918,19 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             for item in all_cmds:
                 file.write(item + "\n")
 
-        logging.info(f"all_smds: {all_cmds}")
+        #logging.info(f"all_smds: {all_cmds}")
 
         sub_type = analysis_meta.get('sub_type', "undefifed")
         logging.debug("sub_type" + str(use_icf))
 
         job_id = submit_sbatch_to_uppmax(sub_analysis_id, sub_type)
 
-        update_sub_analysis_status_to_db(connection, cursor, sub_analysis_id, f"submitted, job_id={job_id}")
+        if job_id:
+            update_sub_analysis_status_to_db(connection, cursor, analysis_id, sub_analysis_id, f"submitted, job_id={job_id}")
 
-        # when all chunks of the sub analysis are sent in, mark the sub analysis as started
-        mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
-        mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
+            # when all chunks of the sub analysis are sent in, mark the sub analysis as started
+            mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
+            mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
 
 
 def submit_sbatch_to_uppmax(sub_id, sub_type):
@@ -939,7 +945,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
         nHours = 10
         nNodes = 1
     else:
-        nHours = 96
+        nHours = 84
         nNodes = 16
 
     cpp_config = load_cpp_config()
@@ -951,12 +957,13 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
 	       f" -M snowy"
 	       f" -n {nNodes}"
 	       f" -t {nHours}:00:00"
-	       f" --output={sub_id}-slurm.%j.out"
-           f" --error={sub_id}-slurm.%j.out"
+	       f" --output=logs/{sub_id}-slurm.%j.out"
+           f" --error=logs/{sub_id}-slurm.%j.out"
 	       f" -A uppmax2023-2-16"
 	       f" -D /proj/uppmax2023-2-16/cpp_uppmax"
 	       f" run_cellprofiler_apptainer.sh"
 	       f" -d /cpp_work/input/{sub_id}"
+           f" -o /cpp_work/output/{sub_id}"
            f" -w {nNodes}"
            f" -e {max_errors}"
         )
@@ -975,7 +982,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
         if match:
             job_id = match.group(1)
         else:
-            logging.warning(f"No batch job ID found in the std out, stdout: {output}")
+            logging.error(f"No batch job ID found in the std out, stdout: {output}")
 
     except subprocess.CalledProcessError as e:
         error_message = f"Error: {e.returncode}\n{e.output}"
@@ -1123,6 +1130,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     finished_jobs = {}
     for sub_analysis in unfinished_sub_analyses:
         sub_id = sub_analysis['sub_id']
+        analysis_id = sub_analysis['analysis_id']
         logging.info(f"sub_analyses: {sub_id}")
 
         sub_analysis_out_path = f"/cpp_work/output/{sub_id}"
@@ -1135,13 +1143,13 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
 
                 job_path = os.path.join(sub_analysis_out_path, job)
 
-                logging.info(f'job_path {job_path}')
+                #logging.info(f'job_path {job_path}')
 
                 if os.path.exists(os.path.join(job_path, "error")):
                     # skip this one
                     logging.debug(f"Error job {job}")
                 elif os.path.exists(os.path.join(job_path, "finished")):
-                    finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id}}
+                    finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id, "analysis_id": analysis_id}}
                     logging.debug(f"Job finished: {job}")
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
@@ -1168,7 +1176,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     finished_families = {}
     for family_name, job_list in job_buckets.items():
 
-        logging.info(f'job_list {job_list}')
+        #logging.info(f'job_list {job_list}')
 
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
@@ -1181,16 +1189,32 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
             finished_families[family_name] = job_list
 
 
-        # update status
-        status = f"{len(job_list)} / {family_job_count} jobs finished"
+        # update progress
+        done = len(job_list)
+        total = family_job_count
         sub_id = job_list[0]['metadata']['sub_id']
-        update_sub_analysis_status_to_db(connection, cursor, sub_id, status)
+        analysis_id = job_list[0]['metadata']['analysis_id']
+        update_progress(connection, cursor, analysis_id, sub_id, done, total)
 
 
 
     logging.info("Finished families: " + str(len(finished_families)))
     return finished_families
 
+def update_progress(connection, cursor, analysis_id, sub_id, done, total):
+    
+    start_time = get_sub_analysis_start(connection, cursor, sub_id)
+    if not start_time:
+        start_time = datetime.datetime.now()
+    # Calculate elapsed time and average time per job
+    elapsed_time = datetime.datetime.now() - start_time
+    average_time_per_job = elapsed_time.total_seconds() / done
+    jobs_remaining = total - done
+    time_remaining = average_time_per_job * jobs_remaining
+    hours_remaining = time_remaining / 3600  # Convert seconds to hours
+    progress = f"{done} / {total} jobs finished, time remaining: {hours_remaining:.2f} hours"
+
+    update_sub_analysis_progress_to_db(connection, cursor, analysis_id, sub_id, progress)
 
 
 # goes through all jobs of a family i.e. merges the csvs with the same names into
@@ -1312,10 +1336,10 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
             logging.info(f"elapsed: {(time.time() - start):.3f}")
 
         except Exception as e:
-            logging.error("Exception", e)
-            logging.error("Failed during concat csv files, error ")
-
-            set_sub_analysis_error(cursor, connection, analysis_sub_id)
+            errormessage = f"Failed during concat csv files, error {e}"
+            logging.error(errormessage)
+            analysis_id = get_analysis_sub_id_from_family_name(family_name)
+            set_sub_analysis_error(cursor, connection, analysis_id, analysis_sub_id, errormessage)
 
             # delete all jobs for this sub_analysis
             delete_jobs(analysis_sub_id)
@@ -1405,6 +1429,10 @@ def get_analysis_sub_id_from_family_name(family_name):
     match = re.match('cpp-worker-job-(\w+)-', family_name)
     return int(match.groups()[0])
 
+def get_analysis_id_from_family_name(family_name):
+    match = re.match('cpp-worker-job-\d+-\w+-\d+-\d+-(\d+)', family_name)
+    return int(match.groups()[0])
+
 def get_analysis_info(cursor, analysis_id):
 
     # fetch all images belonging to the plate acquisition
@@ -1448,24 +1476,42 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
 
     return plate_info
 
+def update_sub_analysis_errormsg_to_db(connection, cursor, analysis_id, sub_analysis_id, errormessage):
+    # TODO first get current errormessage, then append id
+    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "error", errormessage)
 
-def update_sub_analysis_status_to_db(connection, cursor, sub_analysis_id, status):
+def update_sub_analysis_status_to_db(connection, cursor, analysis_id, sub_analysis_id, status):
+    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "status", status)
 
-    logging.debug("inside update_sub_analysis_status_to_db")
+def update_sub_analysis_progress_to_db(connection, cursor, analysis_id, sub_analysis_id, progress):
+    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "progress", progress)
 
-    # update status
+def update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, data_key, data_value):
+    logging.debug(f"inside update_meta_data_to_db for {data_key}")
+
+    data = f'{{"{data_key}": "{data_value}"}}'
+
+    # update image_sub_analyses
     query = """UPDATE image_sub_analyses
                SET meta = meta || %s
                WHERE sub_id=%s
             """
 
-    status = f'{{"status": "{status}"}}'
+    logging.debug("query:" + str(query))
+    cursor.execute(query, [data, sub_analysis_id])
+    connection.commit()
+
+    # update image_analyses
+    query = """UPDATE image_analyses
+               SET meta = meta || %s
+               WHERE id=%s
+            """
+
+    data = f'{{"{data_key}_{sub_analysis_id}": "{data_value}"}}'
 
     logging.debug("query:" + str(query))
-    cursor.execute(query, [status, sub_analysis_id] )
-    logging.debug("Before commit")
+    cursor.execute(query, [data, analysis_id])
     connection.commit()
-    logging.debug("Commited")
 
 
 def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_root,  file_list):
@@ -1681,6 +1727,9 @@ def handle_sub_analysis_error(cursor, connection, job):
     # get sub analysis id
     sub_analysis_id = get_analysis_sub_id_from_family_name(job_name)
 
+    # get analysis id
+    analysis_id = get_analysis_id_from_family_name(job_name)
+
     # increment error count for this sub analysis
     sub_anal_err_count[str(sub_analysis_id)] = sub_anal_err_count.get(str(sub_analysis_id), 0) + 1
 
@@ -1691,46 +1740,29 @@ def handle_sub_analysis_error(cursor, connection, job):
     max_errors = get_sub_analysis_max_errors(cursor, connection, sub_analysis_id)
 
     if error_count > max_errors:
-        logging.info("max_errors: " + str(max_errors) + " is less")
+        logging.info(f"error_count is more than max_errors")
 
         # Check if failed already there
         if not has_sub_analysis_error(cursor, connection, sub_analysis_id):
-            set_sub_analysis_error(cursor, connection, sub_analysis_id, job)
+            errormessage = f"error_count is more than max_errors"
+            set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, errormessage)
+            add_error_message_to_sub_analysis(cursor, connection, analysis_id, sub_analysis_id, errormessage)
 
         # delete all jobs for this sub_analysis
         delete_jobs(sub_analysis_id)
     else:
-        logging.info("max_errors: " + str(max_errors) + " is more")
-        add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
+        errormessage = f"error in job {job_name}"
+        add_error_message_to_sub_analysis(cursor, connection, analysis_id, sub_analysis_id, errormessage)
 
     logging.info("done with handle_sub_analysis_error")
 
-def add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job=None):
-
-    return
-    # message = f"sub_analysis_id: {sub_analysis_id}\n"
-
-    # if job:
-    #     pipeline_file: {pipeline_file}
-    #     imageset_file: {imageset_file}
-    #     output_path: {output_path}
-    #     job_timeout: {job_timeout}
-    #     docker_image: {docker_image}
-
-    #     message += f"cp_log: {sub_analysis_id}"
-
-    # # Set error in sub analyses
-    # query = """ UPDATE image_sub_analyses
-    #                     SET error_msg=%s
-    #                     WHERE sub_id=%s
-    #         """
-    # cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
-    # connection.commit()
+def add_error_message_to_sub_analysis(cursor, connection, analysis_id, sub_analysis_id, errormessage):
+    update_sub_analysis_errormsg_to_db(connection, cursor, analysis_id, sub_analysis_id, errormessage)
 
 
-def set_sub_analysis_error(cursor, connection, sub_analysis_id, job=None):
+def set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, errormessage="no error message"):
 
-    add_error_message_to_sub_analysis(cursor, connection, sub_analysis_id, job)
+    add_error_message_to_sub_analysis(cursor, connection, analysis_id, sub_analysis_id, errormessage)
 
     # Set error in sub analyses
     query = """ UPDATE image_sub_analyses
@@ -1755,6 +1787,23 @@ def has_sub_analysis_error(cursor, connection, sub_analysis_id):
         return True
     else:
         return False
+
+def get_sub_analysis_start(connection, cursor, sub_id):
+    query = """ SELECT start FROM image_sub_analyses
+                WHERE sub_id=%s
+            """
+    
+    cursor.execute(query, [sub_id,])
+    
+    row = cursor.fetchone()
+
+    if row:
+        start = row['start']
+        start = start.replace(tzinfo=None)
+    else:
+        start = None 
+
+    return start
 
 def get_sub_analysis_max_errors(cursor, connection, sub_analysis_id):
 
@@ -1902,6 +1951,9 @@ def main():
         logging.info("isdebug:" + str(is_debug()))
 
         logging.getLogger("kubernetes").setLevel(logging.WARNING)
+
+        # set file permissions on ssh key
+        #os.chmod('/root/.ssh/id_rsa', 0o600)
 
         first_reset = True
         while True:
