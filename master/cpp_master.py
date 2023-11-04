@@ -1037,7 +1037,7 @@ def delete_finished_jobpods():
             pods = k8s_core_api.list_namespaced_pod(namespace, label_selector=label_selector)
             for pod in pods.items:
                 logging.info(f"delete pod: {pod.metadata.name}")
-                k8s_core_api.delete_namespaced_pod(pod.metadata.name, namespace)
+                k8s_core_api.delete_namespaced_pod(pod.metadata.name, namespace, propagation_policy="Background")
 
     logging.info("done delete_finished_jobpods")
 
