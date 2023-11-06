@@ -944,6 +944,9 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
     if sub_type == "icf":
         nHours = 10
         nNodes = 1
+    elif sub_type == "qc":
+        nHours = 24
+        nNodes = 16
     else:
         nHours = 84
         nNodes = 16
