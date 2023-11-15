@@ -942,7 +942,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
     max_errors = 10
 
     if sub_type == "icf":
-        nHours = 10
+        nHours = 30 # it should only take about 10h, but I have noticed image load problems when running 20+ icf in parallell
         nNodes = 1
     elif sub_type == "qc":
         nHours = 24
@@ -1142,6 +1142,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
         # list all jobs in output
         if os.path.exists(sub_analysis_out_path):
             all_sub_analyses_jobs = get_all_dirs(sub_analysis_out_path)
+            logging.info(f'len(all_sub_analyses_jobs) {len(all_sub_analyses_jobs)}')
             for job in all_sub_analyses_jobs:
 
                 job_path = os.path.join(sub_analysis_out_path, job)
@@ -1154,6 +1155,9 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
                 elif os.path.exists(os.path.join(job_path, "finished")):
                     finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id, "analysis_id": analysis_id}}
                     logging.debug(f"Job finished: {job}")
+
+            logging.info(f"Finished jobs after this sub {str(len(finished_jobs))}")
+            
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
 
@@ -1178,8 +1182,6 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     family_job_count = {}
     finished_families = {}
     for family_name, job_list in job_buckets.items():
-
-        #logging.info(f'job_list {job_list}')
 
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
