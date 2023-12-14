@@ -312,7 +312,7 @@ def get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_fi
 def make_cellprofiler_yaml(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
 
     if cellprofiler_version is None:
-        cellprofiler_version = "v4.0.7"
+        cellprofiler_version = "v4.2.5-cellpose2.0"
 
     if high_prioryty:
         priority_class_name = "high-priority-cpp"
