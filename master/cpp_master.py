@@ -1106,6 +1106,13 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
             # then all jobs in this family are finished and ready to be processed
             finished_families[family_name] = job_list
 
+        # update progress
+        done = len(job_list)
+        total = family_job_count
+        sub_id = job_list[0]['metadata']['sub_id']
+        analysis_id = job_list[0]['metadata']['analysis_id']
+        update_progress(connection, cursor, analysis_id, sub_id, done, total)
+
 
     logging.info("Finished families: " + str(len(finished_families)))
     return finished_families
@@ -1157,7 +1164,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
                     logging.debug(f"Job finished: {job}")
 
             logging.info(f"Finished jobs after this sub {str(len(finished_jobs))}")
-            
+
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
 
@@ -1207,7 +1214,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     return finished_families
 
 def update_progress(connection, cursor, analysis_id, sub_id, done, total):
-    
+
     start_time = get_sub_analysis_start(connection, cursor, sub_id)
     if not start_time:
         start_time = datetime.datetime.now()
@@ -1797,16 +1804,16 @@ def get_sub_analysis_start(connection, cursor, sub_id):
     query = """ SELECT start FROM image_sub_analyses
                 WHERE sub_id=%s
             """
-    
+
     cursor.execute(query, [sub_id,])
-    
+
     row = cursor.fetchone()
 
     if row:
         start = row['start']
         start = start.replace(tzinfo=None)
     else:
-        start = None 
+        start = None
 
     return start
 
