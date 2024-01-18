@@ -639,7 +639,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                  " WHERE plate_acquisition_id=%s")
 
         # Filter out channel map
-        query += f' AND dye IN ({ ",".join( channel_map.values()) }) '
+        cited_list_of_dyes = [f"'{item}'" for item in channel_map.values()]
+        query += f' AND dye IN ({ ",".join( cited_list_of_dyes ) }) '
 
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
