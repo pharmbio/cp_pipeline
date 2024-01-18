@@ -638,6 +638,9 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s")
 
+        # Filter out channel map
+        query += f' AND dye IN ({ ",".join( channel_map.vavues()) }) '
+
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
 
@@ -1107,11 +1110,11 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
             finished_families[family_name] = job_list
 
         # update progress
-        done = len(job_list)
-        total = family_job_count
-        sub_id = job_list[0]['metadata']['sub_id']
-        analysis_id = job_list[0]['metadata']['analysis_id']
-        update_progress(connection, cursor, analysis_id, sub_id, done, total)
+        #done = len(job_list)
+        #total = family_job_count
+        #sub_id = job_list[0]['metadata']['sub_id']
+        #analysis_id = job_list[0]['metadata']['analysis_id']
+        #update_progress(connection, cursor, analysis_id, sub_id, done, total)
 
 
     logging.info("Finished families: " + str(len(finished_families)))
