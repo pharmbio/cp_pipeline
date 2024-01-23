@@ -102,49 +102,34 @@ def check_analyses_finished(analyses):
 
 
 # function for making a cellprofiler formatted csv file
-def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
-
-#    # fetch channel map from db
-#    logging.info('Running query.')
-#    cursor.execute(f"""
-#                        SELECT channel, dye
-#                        FROM channel_map
-#                        WHERE map_id='{channel_map}'
-#                        """)
-#    dyes = cursor.fetchall()
-#    channel_map = {}
-#    for dye in dyes:
-#        channel_map[dye['channel']] = dye['dye']
-
-    # placeholder instead of a db query
-#    channel_map = {1:'HOECHST', 2:'SYTO', 3:'MITO', 4:'CONCAVALIN', 5:'PHALLOIDINandWGA'}
+def make_imgset_csv(imgsets, channels, storage_paths, use_icf):
 
     ### create header row
     header = ""
 
-    for ch_nr,ch_name in sorted(channel_map.items()):
-        header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
+    for ch_name in sorted(channels):
+        header += f"FileName_{ch_name}," 
 
     header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,"
 
-    for ch_nr,ch_name in sorted(channel_map.items()):
+    for ch_name in sorted(channels):
         header += f"PathName_{ch_name},"
 
-    for ch_nr,ch_name in sorted(channel_map.items()):
+    for ch_name in sorted(channels):
         header += f"URL_{ch_name},"
 
     # Add Illumination correction headers if needed
     if use_icf:
         # First as URL_
-        for ch_nr,ch_name in sorted(channel_map.items()):
+        for ch_name in sorted(channels):
             header += f"URL_ICF_{ch_name},"
 
         # And then as PathName_
-        for ch_nr,ch_name in sorted(channel_map.items()):
+        for ch_name in sorted(channels):
             header += f"PathName_ICF_{ch_name},"
 
          # And then as FileName_
-        for ch_nr,ch_name in sorted(channel_map.items()):
+        for ch_name in sorted(channels):
             header += f"FileName_ICF_{ch_name},"
 
     # remove last comma and add newline
@@ -186,17 +171,17 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
         # all images with same channel have the same correction image
         if use_icf:
             # First as URL
-            for ch_nr,ch_name in sorted(channel_map.items()):
+            for ch_name in sorted(channels):
                 path = f"{storage_paths['full']}/ICF_{ch_name}.npy"
                 row +=  f'\"file:{path}\",'
 
             # Also as PathName_
-            for ch_nr,ch_name in sorted(channel_map.items()):
+            for ch_name in sorted(channels):
                 dir = f"{storage_paths['full']}"
                 row +=  f'"{dir}",'
 
             # Also as FileName_
-            for ch_nr,ch_name in sorted(channel_map.items()):
+            for ch_name in sorted(channels):
                 row +=  f'\"ICF_{ch_name}.npy\",'
 
         # remove last comma and add a newline before adding it to the content
@@ -596,30 +581,34 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         analysis_id = analysis["analysis_id"]
         sub_analysis_id = analysis["sub_id"]
 
-        # fetch the channel map for the acqusition
-        logging.info('Running channel map query.')
-        cursor.execute(f'''
-                            SELECT *
-                            FROM channel_map
-                            WHERE map_id=(SELECT channel_map_id
-                                          FROM plate_acquisition
-                                          WHERE id={analysis['plate_acquisition_id']})
-                           ''')
-        channel_map_res = cursor.fetchall()
-        channel_map = {}
-        for channel in channel_map_res:
-            channel_map[channel['channel']] = channel['dye']
-
-        # make sure channel map is populated
-        if len(channel_map) == 0:
-            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
-
         # get analysis settings
         try:
             analysis_meta = analysis['meta']
         except KeyError:
             logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
 
+
+        # fetch the channel map for the acqusition
+        logging.info('Running channel map query.')
+        cursor.execute(f'''
+                            SELECT dye
+                            FROM channel_map
+                            WHERE map_id=(SELECT channel_map_id
+                                          FROM plate_acquisition
+                                          WHERE id={analysis['plate_acquisition_id']})
+                           ''')
+        channel_map_res = cursor.fetchall()
+        channels = [row['dye'] for row in channel_map_res]
+
+        # make sure channel map is populated
+        if len(channels) == 0:
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
+
+        # If pipeline channels is specified use these
+        pipeline_channels = analysis_meta.get("channels")
+        if pipeline_channels:
+            channels = pipeline_channels
+            
         # check if sites filter is included
         site_filter = None
         if 'site_filter' in analysis_meta:
@@ -638,8 +627,8 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s")
 
-        # Filter out channel map
-        cited_list_of_dyes = [f"'{item}'" for item in channel_map.values()]
+        # Filter out the channels
+        cited_list_of_dyes = [f"'{item}'" for item in channels]
         query += f' AND dye IN ({ ",".join( cited_list_of_dyes ) }) '
 
         if site_filter:
@@ -729,7 +718,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             use_icf = analysis_meta.get('use_icf', False)
             logging.debug("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
-            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
+            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channels=channels, storage_paths=storage_paths, use_icf=use_icf)
 
             # create a folder for the file if needed
             os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
@@ -763,29 +752,28 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         analysis_id = analysis["analysis_id"]
         sub_analysis_id = analysis["sub_id"]
 
+        # get analysis settings
+        try:
+            analysis_meta = analysis['meta']
+        except KeyError:
+            logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
+
+
         # fetch the channel map for the acqusition
         logging.info('Running channel map query.')
         cursor.execute(f'''
-                            SELECT *
+                            SELECT dye
                             FROM channel_map
                             WHERE map_id=(SELECT channel_map_id
                                           FROM plate_acquisition
                                           WHERE id={analysis['plate_acquisition_id']})
                            ''')
         channel_map_res = cursor.fetchall()
-        channel_map = {}
-        for channel in channel_map_res:
-            channel_map[channel['channel']] = channel['dye']
+        channels = [row['dye'] for row in channel_map_res]
 
         # make sure channel map is populated
-        if len(channel_map) == 0:
+        if len(channels) == 0:
             raise ValueError('Channel map is empty, possible error in plate acqusition id.')
-
-        # get analysis settings
-        try:
-            analysis_meta = analysis['meta']
-        except KeyError:
-            logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
 
         # check if sites filter is included
         site_filter = None
@@ -804,6 +792,10 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         query = ("SELECT *"
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s")
+
+        # Filter out the channels
+        cited_list_of_dyes = [f"'{item}'" for item in channels]
+        query += f' AND dye IN ({ ",".join( cited_list_of_dyes ) }) '
 
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
@@ -898,7 +890,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             use_icf = analysis_meta.get('use_icf', False)
             logging.debug("use_icf" + str(use_icf))
              # generate cellprofiler imgset file for this imgset
-            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
+            imageset_content = make_imgset_csv(imgsets=imgset_chunk, channels=channels, storage_paths=storage_paths, use_icf=use_icf)
 
             # create a folder for the file if needed
             os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
@@ -1371,7 +1363,7 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
 def move_job_results_to_storage(family_name, job_list, storage_root):
 
-    logging.info("inside move_job_results_to_storage")
+    logging.info(f"inside move_job_results_to_storage famname {family_name} storage_root {storage_root}")
 
     files_created = []
 
@@ -1381,9 +1373,10 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
         # fetch all files in the job folder
         analysis_sub_id = get_analysis_sub_id_from_family_name(family_name)
         job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
+        logging.debug(f'job path {job_path}')
         for result_file in pathlib.Path(job_path).rglob("*"):
 
-            logging.debug("copy file: " + str(result_file))
+            logging.info("copy file: " + str(result_file))
 
             # exclude files with these extensions
             if result_file.suffix in ['.csv', '.log'] or pathlib.Path.is_dir(result_file):
@@ -1407,6 +1400,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
 
     # move the concatenated output-csv that are in parquet format in sub-analysis dir
     sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
+    logging.info(f'sub_analysis_path = {sub_analysis_path}')
     for result_file in pathlib.Path(sub_analysis_path).glob("*.parquet"):
 
         # keep only the filename in result
