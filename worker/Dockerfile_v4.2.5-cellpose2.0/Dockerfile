@@ -17,6 +17,7 @@ COPY ./models/ /root/.cellpose/models/
 
 RUN apt-get remove -y openjdk-11-jdk-headless
 RUN apt-get update -y && apt-get install -y openjdk-17-jdk-headless
+RUN apt-get install -y rsync
 
 # add our cpp_worker script #
 COPY ./cpp_worker.sh /
