@@ -525,7 +525,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             continue
 
         # check the analysis type and process by analysis specific function
-        if 'run_on_uppmax' not in analysis['meta'] or analysis['meta']['run_on_uppmax'] == False or analysis['meta']['run_on_dardel'] == False:
+        if 'run_on_uppmax' not in analysis['meta'] or 'run_on_dardel' not in analysis['meta'] or 'run_on_hpc' not in analysis['meta']:
             if analysis['meta']['type'] == 'cellprofiler':
                 handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
             elif analysis['meta']['type'] == 'jupyter_notebook':
