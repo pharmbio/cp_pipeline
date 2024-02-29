@@ -948,7 +948,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
         nHours = 30 # it should only take about 10h, but I have noticed image load problems when running 20+ icf in parallell
         nNodes = 1
     elif sub_type == "qc":
-        nHours = 30
+        nHours = 60
         nNodes = 16
     else:
         nHours = 130
