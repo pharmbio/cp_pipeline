@@ -926,7 +926,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         sub_type = analysis_meta.get('sub_type', "undefifed")
         logging.debug("sub_type" + str(use_icf))
 
-        job_id = submit_sbatch_to_uppmax(sub_analysis_id, sub_type)
+        job_id = submit_sbatch_to_uppmax(sub_analysis_id, sub_type, analysis_id)
 
         if job_id:
             update_sub_analysis_status_to_db(connection, cursor, analysis_id, sub_analysis_id, f"submitted, job_id={job_id}")
@@ -936,7 +936,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
 
 
-def submit_sbatch_to_uppmax(sub_id, sub_type):
+def submit_sbatch_to_uppmax(sub_id, sub_type, analysis_id):
 
     logging.info(f"inside submit_sbatch_to_uppmax: {sub_id}, sub_type {sub_type}")
 
@@ -963,6 +963,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
 	       f" -M snowy"
 	       f" -n {nNodes}"
 	       f" -t {nHours}:00:00"
+           f" --job-name='cpp_{analysis_id}_{sub_id}_{sub_type}"
 	       f" --output=logs/{sub_id}-slurm.%j.out"
            f" --error=logs/{sub_id}-slurm.%j.out"
 	       f" -A uppmax2023-2-16"
