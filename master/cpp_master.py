@@ -525,7 +525,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             continue
 
         # check the analysis type and process by analysis specific function
-        if 'run_on_uppmax' not in analysis['meta'] or 'run_on_dardel' not in analysis['meta'] or 'run_on_hpc' not in analysis['meta']:
+        if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpc' not in analysis['meta']:
             if analysis['meta']['type'] == 'cellprofiler':
                 handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
             elif analysis['meta']['type'] == 'jupyter_notebook':
@@ -948,10 +948,10 @@ def submit_sbatch_to_uppmax(sub_id, sub_type):
         nHours = 30 # it should only take about 10h, but I have noticed image load problems when running 20+ icf in parallell
         nNodes = 1
     elif sub_type == "qc":
-        nHours = 24
+        nHours = 30
         nNodes = 16
     else:
-        nHours = 84
+        nHours = 130
         nNodes = 16
 
     cpp_config = load_cpp_config()
@@ -1121,7 +1121,27 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
     return finished_families
 
 def get_all_dirs(path):
-    return [d.name for d in pathlib.Path(path).iterdir() if d.is_dir()]
+    # Create a Path object from the given path
+    path_obj = pathlib.Path(path)
+
+    # Check if the path exists and is a directory
+    if not path_obj.exists() or not path_obj.is_dir():
+        # Return None if the path is not a directory or does not exist
+        return None
+
+    # Initialize an empty list to hold the names of all directories
+    dir_names = []
+
+    # Iterate over each item in the directory
+    for d in path_obj.iterdir():
+        # Check if the item is a directory
+        if d.is_dir():
+            # Add the directory name to the list
+            dir_names.append(d.name)
+
+    # Return the list of directory names
+    return dir_names
+
 
 def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     logging.info("Inside fetch_finished_job_families_uppmax")
