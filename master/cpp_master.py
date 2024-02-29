@@ -963,7 +963,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type, analysis_id):
 	       f" -M snowy"
 	       f" -n {nNodes}"
 	       f" -t {nHours}:00:00"
-           f" --job-name='cpp_{analysis_id}_{sub_id}_{sub_type}"
+           f" --job-name=cpp_{analysis_id}_{sub_id}_{sub_type}"
 	       f" --output=logs/{sub_id}-slurm.%j.out"
            f" --error=logs/{sub_id}-slurm.%j.out"
 	       f" -A uppmax2023-2-16"
