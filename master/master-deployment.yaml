@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cpp-master
-  namespace: cpp
+  namespace: cpp-debug
   labels:
     app: cpp-master
 spec:
@@ -31,10 +31,12 @@ spec:
         resources:
           limits:
             cpu: 6000m
-            memory: 240Gi 
+            memory: 240Gi
+            ephemeral-storage: "64Gi" 
           requests:
             cpu: 1000m
             memory: 2Gi 
+            ephemeral-storage: "1Gi"
         volumeMounts:
         - mountPath: /root/.kube/
           name: kube-config

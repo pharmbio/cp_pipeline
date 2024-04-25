@@ -13,8 +13,6 @@
 # * make sure the worker container image exists and works
 # * build csv straight to file to reduce memory problems, need at least 32MB at moment
 
-
-
 import psycopg2
 import psycopg2.extras
 import sys
@@ -459,6 +457,14 @@ def load_cpp_config():
     cpp_config['uppmax_hostname'] = cpp_config['uppmax']['hostname']
     cpp_config['uppmax_project'] = cpp_config['uppmax']['project']
 
+    cpp_config['uppmax_user'] = cpp_config['uppmax']['user']
+    cpp_config['uppmax_hostname'] = cpp_config['uppmax']['hostname']
+    cpp_config['uppmax_project_rackham'] = cpp_config['uppmax']['project_rackham']
+
+    cpp_config['uppmax_user'] = cpp_config['uppmax']['user']
+    cpp_config['uppmax_hostname'] = cpp_config['uppmax']['hostname']
+    cpp_config['uppmax_project_snowy'] = cpp_config['uppmax']['project_snowy']
+
     return cpp_config
 
 
@@ -616,8 +622,11 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         if 'channels' in analysis_meta:
             channels_filter = list(analysis_meta['channels'])
 
-        if z is None:
-            z = get_first_z_plane(analysis['plate_acquisition_id'])
+        # to do fix this
+        if 'z' in analysis_meta:
+            z = analysis_meta['z']
+        else:
+            z = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
 
 
         # fetch all images belonging to the plate acquisition
@@ -672,8 +681,6 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
                            ''')
         channel_map_res = cursor.fetchall()
         # make sure channel map is populated
-        if len(channel_map) == 0:
-            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         channel_map = {}
         # Check if the analysis_meta channels list is provided; if not, include all results without filtering
@@ -686,6 +693,10 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             for channel in channel_map_res:
                 if channel['dye'] in channels_filter:
                     channel_map[channel['channel']] = channel['dye']
+
+        if len(channel_map) == 0:
+            set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, 'Channel map is empty')
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         # get cellprofiler-version
         try:
@@ -775,24 +786,6 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         analysis_id = analysis["analysis_id"]
         sub_analysis_id = analysis["sub_id"]
 
-        # fetch the channel map for the acqusition
-        logging.info('Running channel map query.')
-        cursor.execute(f'''
-                            SELECT *
-                            FROM channel_map
-                            WHERE map_id=(SELECT channel_map_id
-                                          FROM plate_acquisition
-                                          WHERE id={analysis['plate_acquisition_id']})
-                           ''')
-        channel_map_res = cursor.fetchall()
-        channel_map = {}
-        for channel in channel_map_res:
-            channel_map[channel['channel']] = channel['dye']
-
-        # make sure channel map is populated
-        if len(channel_map) == 0:
-            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
-
         # get analysis settings
         try:
             analysis_meta = analysis['meta']
@@ -809,33 +802,46 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         if 'well_filter' in analysis_meta:
             well_filter = list(analysis_meta['well_filter'])
 
+        channels_filter = None
+        if 'channels' in analysis_meta:
+            channels_filter = list(analysis_meta['channels'])
+
+        # to do fix this
+        if 'z' in analysis_meta:
+            z = analysis_meta['z']
+        else:
+            z = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+
 
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
 
         query = ("SELECT *"
                  " FROM images_all_view"
-                 " WHERE plate_acquisition_id=%s")
+                 " WHERE plate_acquisition_id=%s"
+                 " AND z = %s")
 
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
 
         if well_filter:
-            query += ' AND well IN (' + ','.join("'{0}'".format(w) for w in well_filter) + ")"
+            query += ' AND well IN (' + ','.join("'{0}'".format(well) for well in well_filter) + ")"
 
+        if channels_filter:
+            query += ' AND dye IN (' + ','.join("'{0}'".format(chan) for chan in channels_filter) + ")"
 
         query += " ORDER BY timepoint, well, site, channel"
 
         logging.info("query: " + query)
 
-        cursor.execute(query, (analysis['plate_acquisition_id'],))
+        cursor.execute(query, (analysis['plate_acquisition_id'], z, ))
         imgs = cursor.fetchall()
 
+        # make imgsets of result
         imgsets = {}
         img_infos = {}
         for img in imgs:
 
-            logging.debug(f'img: {img["path"]}')
             # readability
             imgset_id = f"{img['well']}-{img['site']}"
 
@@ -848,6 +854,33 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
                 imgsets[imgset_id] = [img['path']]
                 img_infos[imgset_id] = [img]
 
+        # fetch the channel map for the acqusition
+        logging.info('Running channel map query.')
+        cursor.execute(f'''
+                            SELECT *
+                            FROM channel_map
+                            WHERE map_id=(SELECT channel_map_id
+                                          FROM plate_acquisition
+                                          WHERE id={analysis['plate_acquisition_id']})
+                           ''')
+        channel_map_res = cursor.fetchall()
+        # make sure channel map is populated
+
+        channel_map = {}
+        # Check if the analysis_meta channels list is provided; if not, include all results without filtering
+        if channels_filter is None:
+            # Include all channels from the results without filtering
+            for channel in channel_map_res:
+                channel_map[channel['channel']] = channel['dye']
+        else:
+            # Filter the results to include only those where the dye is in the 'channels' list
+            for channel in channel_map_res:
+                if channel['dye'] in channels_filter:
+                    channel_map[channel['channel']] = channel['dye']
+
+        if len(channel_map) == 0:
+            set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, 'Channel map is empty')
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         # get cellprofiler-version
         try:
@@ -950,6 +983,78 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
 
 
 def submit_sbatch_to_uppmax(sub_id, sub_type, analysis_id):
+    return submit_sbatch_to_rackham(sub_id, sub_type, analysis_id)
+
+def submit_sbatch_to_rackham(sub_id, sub_type, analysis_id):
+
+    logging.info(f"inside submit_sbatch_to_uppmax: {sub_id}, sub_type {sub_type}")
+
+    job_id = None
+
+    max_errors = 10
+
+    if sub_type == "icf":
+        nHours = 20 # it should only take about 10h, but I have noticed image load problems when running 20+ icf in parallell
+        nTasks = 1
+        partition = "core"
+        workers = 1
+    elif sub_type == "qc":
+        nHours = 20
+        nTasks = 20
+        partition = "node"
+        workers = 25
+    else:
+        nHours = 100
+        nTasks = 20
+        partition = "node"
+        workers = 25
+
+    cpp_config = load_cpp_config()
+    project_id = cpp_config['uppmax_project_rackham']
+
+    # Define your command as a string
+    cmd = (f"ssh -o StrictHostKeyChecking=no"
+           f" {cpp_config['uppmax_user']}@{cpp_config['uppmax_hostname']}"
+           f" sbatch"
+	       f" -n {nTasks}"
+	       f" -t {nHours}:00:00"
+           f" --job-name=cpp_{analysis_id}_{sub_id}_{sub_type}"
+	       f" --output=logs/{analysis_id}_{sub_id}-slurm.%j.out"
+           f" --error=logs/{analysis_id}_{sub_id}-slurm.%j.out"
+	       f" -A {project_id}"
+	       f" -D /home/andersl/cpp_uppmax"
+	       f" run_cellprofiler_apptainer.sh"
+	       f" -d /cpp_work/input/{sub_id}"
+           f" -o /cpp_work/output/{sub_id}"
+           f" -w {workers}"
+           f" -e {max_errors}"
+        )
+
+    logging.info(f"cmd: {cmd}")
+
+    try:
+        # Execute the command and capture the output
+        output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT, text=True)
+        logging.info(f"stdout: {output}")
+
+        # Define a regular expression pattern to match the batch job ID
+        pattern = r'Submitted batch job (\d+)'
+
+        match = re.search(pattern, output)
+        if match:
+            job_id = match.group(1)
+        else:
+            logging.error(f"No batch job ID found in the std out, stdout: {output}")
+
+    except subprocess.CalledProcessError as e:
+        error_message = f"Error: {e.returncode}\n{e.output}"
+        logging.error(error_message)
+
+    return job_id
+
+
+
+def submit_sbatch_to_snowy(sub_id, sub_type, analysis_id):
 
     logging.info(f"inside submit_sbatch_to_uppmax: {sub_id}, sub_type {sub_type}")
 
@@ -968,7 +1073,7 @@ def submit_sbatch_to_uppmax(sub_id, sub_type, analysis_id):
         nNodes = 16
 
     cpp_config = load_cpp_config()
-    project_id = cpp_config['uppmax_project']
+    project_id = cpp_config['uppmax_project_snowy']
 
     # Define your command as a string
     cmd = (f"ssh -o StrictHostKeyChecking=no"
@@ -978,8 +1083,8 @@ def submit_sbatch_to_uppmax(sub_id, sub_type, analysis_id):
 	       f" -n {nNodes}"
 	       f" -t {nHours}:00:00"
            f" --job-name=cpp_{analysis_id}_{sub_id}_{sub_type}"
-	       f" --output=logs/{sub_id}-slurm.%j.out"
-           f" --error=logs/{sub_id}-slurm.%j.out"
+	       f" --output=logs/{analysis_id}_{sub_id}-slurm.%j.out"
+           f" --error=logs/{analysis_id}_{sub_id}-slurm.%j.out"
 	       f" -A {project_id}"
 	       f" -D /home/andersl/cpp_uppmax"
 	       f" run_cellprofiler_apptainer.sh"
@@ -1348,14 +1453,13 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
         start = time.time()
 
         files = filename_dict[filename]
-        n = 0
 
         # create concat-csv with all files with current filename, e.g experiment, nuclei, cytoplasm
         is_header_already_included = False
         tmp_csvfile = os.path.join('/tmp/', filename + '.merged.csv.tmp')
         try:
             with open(tmp_csvfile, 'w') as csvout:
-                for file in files:
+                for fileCount, file in enumerate(files):
                     with open(file, "r") as f:
                         # only include header once
                         if is_header_already_included:
@@ -1364,16 +1468,16 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
                             csvout.write(row)
                             is_header_already_included = True
 
-                    if n % 500 == 0:
-                        logging.info(f'{n}/{len(files)} {filename}')
-                    n = n+1
+                    if fileCount % 500 == 0:
+                        logging.info(f'{fileCount}/{len(files)} {filename}')
+
 
             logging.info(f'done concat csv {filename}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
             logging.info(f'start pd.read_csv {tmp_csvfile}')
             pyarrow.set_cpu_count(5)
             #parse_options
-            df = pd.read_csv(tmp_csvfile, engine='pyarrow')
+            df = pd.read_csv(tmp_csvfile, engine="c")
             os.remove(tmp_csvfile)
             logging.info(f'done concat {filename}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
@@ -1381,7 +1485,7 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
             df = to32bit(df)
             parquetfilename = os.path.splitext(filename)[0] + '.parquet'
             parquetfile = os.path.join(sub_analysis_path, parquetfilename)
-            df.to_parquet(parquetfile)
+            df.to_parquet(parquetfile, engine="pyarrow")
             logging.info(f'done save as parquet {parquetfile}')
             logging.info(f"elapsed: {(time.time() - start):.3f}")
 
@@ -1500,19 +1604,25 @@ def get_analysis_info(cursor, analysis_id):
     return plate_info
 
 def get_first_z_plane(cursor, acq_id):
+    # Log the start of fetching data
+    logging.info(f'Fetching minimum z-plane for plate acquisition ID: {acq_id}')
 
-    # fetch all images belonging to the plate acquisition
-    logging.info('Fetching plate info from view.')
-    query = f"""
-                        SELECT min(z)
-                        FROM images 
-                        WHERE plate_acquisition_id=%s
-                       """ 
-    logging.info(query)
+    # SQL query to select the minimum z value where the plate_acquisition_id matches
+    query = """
+            SELECT min(z) AS min_z
+            FROM images
+            WHERE plate_acquisition_id = %s
+            """
+    # Log the query string
+    logging.info('Executing query: %s with ID: %s', query.strip(), acq_id)
+
+    # Execute the SQL query with the provided acquisition ID
     cursor.execute(query, (acq_id,))
-    z = cursor.fetchone()
-    
-    return z[0]
+
+    # Fetch the result as a dictionary
+    result = cursor.fetchone()
+
+    return result['min_z']
 
 
 def get_sub_analysis_info(cursor, analysis_sub_id):
