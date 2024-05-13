@@ -15,14 +15,9 @@ spec:
       labels:
         app: cpp-master
     spec:
-#      initContainers:
-#      - name: volume-permissions
-#        image: busybox
-#        command: ["/bin/sh"]
-#        args: ["-c", "chmod 600 /root/.ssh/id_rsa"]
-#        volumeMounts:
-#        - name: uppmax-ssh
-#          mountPath: /root/.ssh/
+      securityContext:
+        runAsUser: 20000
+        fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed
       containers:
       - name: cpp-master
         image: ghcr.io/pharmbio/cpp_master:stable
@@ -38,11 +33,11 @@ spec:
             memory: 2Gi 
             ephemeral-storage: "1Gi"
         volumeMounts:
-        - mountPath: /root/.kube/
+        - mountPath: /home/cpp/.kube/
           name: kube-config
         - mountPath: /cpp_work
           name: cpp2
-        - mountPath: /root/.ssh/id_rsa
+        - mountPath: /home/cpp/.ssh/id_rsa
           subPath: id_rsa
           name: uppmax-ssh  
       restartPolicy: Always
@@ -62,4 +57,4 @@ spec:
       - name: uppmax-ssh
         secret:
           secretName: uppmax-ssh
-          defaultMode: 384
+          defaultMode: 0600

@@ -226,6 +226,9 @@ metadata:
 spec:
   template:
     spec:
+      securityContext:
+        runAsUser: 20000
+        fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -1002,12 +1005,12 @@ def submit_sbatch_to_rackham(sub_id, sub_type, analysis_id):
         nHours = 20
         nTasks = 20
         partition = "node"
-        workers = 25
+        workers = 20
     else:
         nHours = 100
         nTasks = 20
         partition = "node"
-        workers = 25
+        workers = 20
 
     cpp_config = load_cpp_config()
     project_id = cpp_config['uppmax_project_rackham']

@@ -7,13 +7,17 @@ RUN apt update && \
 # install python packages
 RUN pip3 install psycopg2-binary \
                  kubernetes \
-                 pandas==1.5 \
-                 pyarrow==10
+                 pandas==2.2 \
+                 pyarrow==16
 
 
 # set timezone
 ENV TZ=Europe/Stockholm
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# Create a new group and user 'cpp' with specified UID and GID
+RUN groupadd -g 20000 cpp && \
+    useradd -m -u 20000 -g cpp -s /bin/bash cpp
 
 # add scripts last
 COPY cpp_master.py /cpp/
