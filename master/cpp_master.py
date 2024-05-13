@@ -204,74 +204,6 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     return f"{header}{content}"
 
 
-
-def  make_jupyter_yaml(notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file):
-
-    docker_image="pharmbio/pharmbio-notebook:tf-2.1.0"
-
-    # docker run -e WORK_FOLDER="katt" -it -u root -v /share/data/cellprofiler/automation/:/cpp_work/ pharmbio/pharmbio-notebook:tf-2.1.0 jupyter nbconvert --to pdf --output=/cpp_work/notebooks/hello.output.ipynb.pdf /cpp_work/notebooks/hello.ipynb
-
-    return yaml.safe_load(f"""
-
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {job_name}
-  namespace: {get_namespace()}
-  labels:
-    pod-type: cpp
-    app: cpp-worker
-    analysis_id: "{analysis_id}"
-    sub_analysis_id: "{sub_analysis_id}"
-spec:
-  template:
-    spec:
-      securityContext:
-        runAsUser: 20000
-        fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed
-      containers:
-      - name: cpp-worker
-        image: {docker_image}
-        imagePullPolicy: Always
-        #command: ["sleep", "3600"]
-        command: ["/bin/sh", "-c"]
-        args:
-        - >
-          jupyter nbconvert --to notebook --inplace --execute --ExecutePreprocessor.timeout=600 --output-dir {output_path} {notebook_file} &&
-          jupyter nbconvert --to pdf --TemplateExporter.exclude_input=True --no-prompt --output-dir {output_path} {notebook_file}
-        env:
-        - name: ANALYSIS_INPUT_FILE
-          value: {analysis_input_file}
-        - name: ANALYSIS_INPUT_FOLDER
-          value: {analyis_input_folder}
-        resources:
-            limits:
-              cpu: 2000m
-              memory: 4Gi
-            requests:
-              cpu: 500m
-              memory: 2Gi
-        volumeMounts:
-        - mountPath: /share/mikro/IMX/MDC_pharmbio/
-          name: mikroimages
-        #- mountPath: /root/.kube/
-        #  name: kube-config
-        - mountPath: /cpp_work
-          name: cpp
-      restartPolicy: Never
-      volumes:
-      - name: mikroimages
-        persistentVolumeClaim:
-          claimName: micro-images-pvc
-      - name: cpp
-        persistentVolumeClaim:
-          claimName: cpp-pvc
-      #- name: kube-config
-      #  secret:
-      #    secretName: cpp-user-kube-config
-""")
-
-
 def get_cellprofiler_cmd_uppmax(cellprofiler_version, pipeline_file, imageset_file, output_path, job_name, analysis_id, sub_analysis_id, job_timeout, high_prioryty):
 
     if cellprofiler_version is None:
@@ -351,6 +283,9 @@ spec:
       nodeSelector:
         pipelineNode: "true"
       priorityClassName: {priority_class_name}
+      securityContext:
+        runAsUser: 20000
+        fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -379,12 +314,8 @@ spec:
           name: mikroimages
         - mountPath: /share/mikro2/
           name: mikroimages2
-        #- mountPath: /root/.kube/
-        #  name: kube-config
         - mountPath: /cpp_work
           name: cpp2
-        #- mountPath: /cpp2_work
-        #  name: cpp2
         - mountPath: /share/data/external-datasets
           name: externalimagefiles
       restartPolicy: Never
