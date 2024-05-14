@@ -587,6 +587,12 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         cursor.execute(query, (analysis['plate_acquisition_id'], z, ))
         imgs = cursor.fetchall()
 
+        # if imgs is empty raise error
+        if not imgs:
+            errormessage = "No images found for the analysis with the input data ...."
+            set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, errormessage)
+            raise ValueError(errormessage)
+
         # make imgsets of result
         imgsets = {}
         img_infos = {}
@@ -771,6 +777,12 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         cursor.execute(query, (analysis['plate_acquisition_id'], z, ))
         imgs = cursor.fetchall()
 
+        # if imgs is empty raise error
+        if not imgs:
+            errormessage = "No images found for the analysis with the input data ...."
+            set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, errormessage)
+            raise ValueError(errormessage)
+
         # make imgsets of result
         imgsets = {}
         img_infos = {}
@@ -896,8 +908,8 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         #mark_sub_analysis_as_started(cursor, connection, analysis['sub_id'])
 
 
-        sub_anal_out_dir = f"/cpp_work/input/{sub_analysis_id}"
-        with open(f"{sub_anal_out_dir}/cmds.txt", "w") as file:
+        sub_analysis_out_dir = f"/cpp_work/input/{sub_analysis_id}"
+        with open(f"{sub_analysis_out_dir}/cmds.txt", "w") as file:
             for item in all_cmds:
                 file.write(item + "\n")
 
