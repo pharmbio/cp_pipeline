@@ -31,4 +31,13 @@ if [ $exit_code -eq 124 ]; then
    echo "JOB_KILLED_BY_TIMEOUT" | tee -a "$logfile"
    exit_code=0
 fi
+
+# Write an "error" file if exit code is non-zero
+if [ $exit_code -ne 0 ]; then
+  touch "$OUTPUT_PATH/error"
+else
+  # Only write a "finished" file if there is no error
+  touch "$OUTPUT_PATH/finished"
+fi
+
 exit $exit_code
