@@ -1455,7 +1455,10 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 # goes through all the non-csv filescsv of a family of job and copies the result to the result folder
 def move_job_results_to_storage(family_name, job_list, storage_root):
 
-    logging.info("inside move_job_results_to_storage")
+    logging.info("Inside move_job_results_to_storage")
+
+    skip_suffixes = ['.csv', '.log']
+    skip_files = ['finished', 'error']
 
     files_created = []
 
@@ -1467,11 +1470,11 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
         job_path = f"/cpp_work/output/{analysis_sub_id}/{job['metadata']['name']}"
         for result_file in pathlib.Path(job_path).rglob("*"):
 
-            logging.debug("copy file: " + str(result_file))
+            logging.debug("move file: " + str(result_file))
 
             # exclude files with these extensions
-            if result_file.suffix in ['.csv', '.log'] or pathlib.Path.is_dir(result_file):
-                logging.debug("continue")
+            if result_file.suffix in skip_suffixes or result_file.name in skip_files or pathlib.Path.is_dir(result_file):
+                logging.debug("Skipping file: " + str(result_file))
                 continue
 
             # keep only the path relative to the job_path
@@ -1487,7 +1490,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
             # remember the file
             files_created.append(f"{filename}")
 
-            logging.debug("done copy file: " + str(filename))
+            logging.debug("done move file: " + str(filename))
 
     # move the concatenated output-csv that are in parquet format in sub-analysis dir
     sub_analysis_path = f"/cpp_work/output/{analysis_sub_id}/"
@@ -1495,6 +1498,10 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
 
         # keep only the filename in result
         filename = pathlib.Path(result_file).name
+
+        # create a folder for the file if needed
+        subdir_name = os.path.dirname(filename)
+        os.makedirs(f"{storage_root['full']}/{subdir_name}", exist_ok=True)
 
         # move the file to the storage location
         shutil.move(f"{result_file}", f"{storage_root['full']}/{filename}")
@@ -1505,7 +1512,7 @@ def move_job_results_to_storage(family_name, job_list, storage_root):
         logging.debug("done copy file: " + str(filename))
 
 
-    logging.info("done move_job_results_to_storage")
+    logging.info("Done move_job_results_to_storage")
 
     return files_created
 
