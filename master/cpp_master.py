@@ -471,7 +471,9 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             elif analysis['meta']['type'] == 'jupyter_notebook':
                 handle_anlysis_jupyter_notebook(analysis, cursor, connection)
             else:
-                raise ValueError(f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}')
+                error_msg = f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}'
+                set_sub_analysis_error(cursor,connection, analysis["analysis_id"], analysis["sub_id"], error_msg)
+                raise ValueError(error_msg)
 
 
 def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
@@ -746,7 +748,6 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         if 'channels' in analysis_meta:
             channels_filter = list(analysis_meta['channels'])
 
-        # to do fix this
         if 'z' in analysis_meta:
             z = analysis_meta['z']
         else:
@@ -1800,6 +1801,7 @@ def handle_finished_analyses(cursor, connection):
 
 
 def set_analysis_error(analysis_id, cursor, connection):
+    logging.info(f"inside set_analysis_error analysis_id {analysis_id}")
     # create timestamp
     error_time = str(datetime.datetime.now())
 
@@ -1900,6 +1902,8 @@ def set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, err
             """
     cursor.execute(query, [str(datetime.datetime.now()), sub_analysis_id,])
     connection.commit()
+
+    set_analysis_error(analysis_id, cursor, connection)
 
 
 def has_sub_analysis_error(cursor, connection, sub_analysis_id):
@@ -2140,9 +2144,13 @@ def main():
                 handle_finished_analyses(cursor, connection)
 
 
-            # catch db errors
-            except (psycopg2.Error) as error:
-                logging.exception(error)
+            # Catch psycopg2 database errors
+            except psycopg2.Error as error:
+                logging.exception("Database error: ", error)
+
+            # Catch value errors
+            except ValueError as valerror:
+                logging.exception("Value error: ", valerror)
 
             finally:
                 #closing database connection
