@@ -1386,7 +1386,7 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 
     # some files should not be concatenated but only one file should be copied
     # They are being put here into a separate dict and then one file is renemed to another extension than csv
-    excludes = ["_experiment_", "_experiment.csv", 'Experiment.csv']
+    excludes = ["qcRAW_experiment_", "icf_experiment_" "_experiment.csv", 'Experiment.csv']
     filename_excluded = {}
     for exclude in excludes:
         for key in list(filename_dict.keys()):
