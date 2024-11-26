@@ -1912,19 +1912,32 @@ def set_sub_analysis_error(cursor, connection, analysis_id, sub_analysis_id, err
 
 
 def has_sub_analysis_error(cursor, connection, sub_analysis_id):
-
-    # Set error in sub analyses
-    query = """ SELECT error FROM image_sub_analyses
-                WHERE sub_id=%s
     """
-    cursor.execute(query, [sub_analysis_id,])
+    Checks if a sub-analysis has an error.
 
-    has_error = cursor.fetchone()
+    Parameters:
+    - cursor: The database cursor.
+    - connection: The database connection (not used here, but kept for context).
+    - sub_analysis_id: The ID of the sub-analysis to check.
 
-    if has_error is None:
+    Returns:
+    - True if the sub-analysis has an error, False otherwise.
+    - None if the sub-analysis does not exist.
+    """
+
+    # Query to check for errors in the sub-analysis
+    query = """SELECT error FROM image_sub_analyses
+               WHERE sub_id = %s"""
+    cursor.execute(query, [sub_analysis_id])
+    result = cursor.fetchone()
+
+    if result is None:
+        # Sub-analysis ID not found in the table
         return True
     else:
-        return False
+        # Check if the error column indicates an error
+        has_error = result[0]
+        return bool(has_error)  # True if error is present, False otherwise
 
 def get_sub_analysis_start(connection, cursor, sub_id):
     query = """ SELECT start FROM image_sub_analyses
