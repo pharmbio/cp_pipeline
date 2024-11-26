@@ -86,7 +86,7 @@ def all_dependencies_satisfied(analysis, cursor):
 # check if all analyses in a list are finished
 def check_analyses_finished(analyses):
 
-        logging.info("Inside check_analyses_finished")
+        logging.debug("Inside check_analyses_finished")
 
         # check all dependencies
         for analysis in analyses:
@@ -371,7 +371,7 @@ def load_cpp_config():
 
     # fetch db settings
     namespace = get_namespace()
-    logging.info("namespace:" + namespace)
+    logging.debug("namespace:" + namespace)
 
     if is_debug():
         with open('/cpp/debug_configs.yaml', 'r') as configs_debug:
@@ -406,7 +406,7 @@ def connect_db(cpp_config):
 
 
     # connect to the db
-    logging.info("Connecting to db.")
+    logging.debug("Connecting to db.")
     connection = None
     connection = psycopg2.connect(  database=cpp_config['postgres']['db'],
                                     user=cpp_config['postgres']['user'],
@@ -424,17 +424,18 @@ def generate_random_identifier(length):
 
     return ''.join(random.SystemRandom().choice(string.ascii_lowercase + string.digits) for _ in range(length))
 
-def handle_new_jobs(cursor, connection, job_limit=None):
 
+def handle_new_jobs(cursor, connection, job_limit=None):
+    logging.info('Inside handle_new_jobs')
     # ask for all new analyses
-    logging.info('Running analyses query.')
+    logging.debug('Running analyses query.')
     query = '''
              SELECT *
              FROM image_sub_analyses
              WHERE start IS NULL
              ORDER by priority, sub_id
             '''
-    logging.info(query)
+    logging.debug(query)
     cursor.execute(query)
 
     analyses = cursor.fetchall()
@@ -443,7 +444,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
     for analysis in analyses:
         if analysis['meta']['type'] == 'cellprofiler':
             if 'run_on_uppmax' in analysis['meta'] and analysis['meta']['run_on_uppmax'] == True:
-                logging.info(f'is uppmax analysis: {analysis["analysis_id"]}')
+                logging.debug(f'is uppmax analysis: {analysis["analysis_id"]}')
                 # only run analyses that have satisfied dependencies
                 if all_dependencies_satisfied(analysis, cursor):
                     handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit)
@@ -452,20 +453,22 @@ def handle_new_jobs(cursor, connection, job_limit=None):
     # now check for unstarted that should run on cluster
     for analysis in analyses:
 
-        logging.info(f'checking analysis id { analysis["analysis_id"] }')
-
-        priority = analysis['meta'].get('priority', 0)
-
-        # Check if kubernetes job queue is empty or priority is highest
-        if not is_kubernetes_job_queue_empty() and priority != 1:
-            break
-
-        # skip analyiss if there are unmet dependencies
-        if not all_dependencies_satisfied(analysis, cursor):
-            continue
-
         # check the analysis type and process by analysis specific function
-        if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpc' not in analysis['meta']:
+        if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta']:
+
+            logging.debug(f'checking analysis id { analysis["analysis_id"] }')
+
+            priority = analysis['meta'].get('priority', 0)
+
+            # Check if kubernetes job queue is empty or priority is highest
+            if not is_kubernetes_job_queue_empty() and priority != 1:
+                break
+
+            # skip analyiss if there are unmet dependencies
+            if not all_dependencies_satisfied(analysis, cursor):
+                continue
+
+            # check the analysis type and process by analysis specific function
             if analysis['meta']['type'] == 'cellprofiler':
                 handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
             elif analysis['meta']['type'] == 'jupyter_notebook':
@@ -474,6 +477,8 @@ def handle_new_jobs(cursor, connection, job_limit=None):
                 error_msg = f'Unknown Analysis type: {analysis["meta"]["type"]} in subanalysis id {analysis["sub_id"]}'
                 set_sub_analysis_error(cursor,connection, analysis["analysis_id"], analysis["sub_id"], error_msg)
                 raise ValueError(error_msg)
+
+        logging.info('done handle_new_jobs')
 
 
 def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
@@ -513,7 +518,7 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
     os.makedirs(os.path.dirname(copyof_notebook_file), exist_ok=True)
     shutil.copyfile(notebook_file, copyof_notebook_file)
 
-    job_yaml = make_jupyter_yaml(copyof_notebook_file, output_path, job_name, analysis_id, sub_analysis_id, analyis_input_folder, analysis_input_file)
+    job_yaml = ""
 
     logging.info("yaml:" + yaml.dump( job_yaml, default_flow_style=False, default_style='' ))
 
@@ -1071,7 +1076,7 @@ def get_joblist():
 
 def is_kubernetes_job_queue_empty():
 
-    logging.info("Inside is_kubernetes_job_queue_empty");
+    logging.debug("Inside is_kubernetes_job_queue_empty");
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
@@ -1084,10 +1089,10 @@ def is_kubernetes_job_queue_empty():
     for job in job_list.items:
       if job.status.start_time is None:
         is_queue_empty = False
-        logging.info("Queue is not empty, exit loop")
+        logging.debug("Queue is not empty, exit loop")
         break
 
-    logging.info("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
+    logging.debug("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
     return is_queue_empty
 
 def delete_finished_jobpods():
@@ -1109,7 +1114,7 @@ def delete_finished_jobpods():
 
             pods = k8s_core_api.list_namespaced_pod(namespace, label_selector=label_selector)
             for pod in pods.items:
-                logging.info(f"delete pod: {pod.metadata.name}")
+                logging.debug(f"delete pod: {pod.metadata.name}")
                 k8s_core_api.delete_namespaced_pod(pod.metadata.name, namespace, propagation_policy="Background")
 
     logging.info("done delete_finished_jobpods")
@@ -1168,7 +1173,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
 
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
-        logging.info(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
+        logging.debug(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
         # check if there are as many finished jobs as the total job count for the family
         # for debug reasons we also check if the job limit is reached
         if family_job_count == len(job_list) or (job_limit is not None and len(job_list) == job_limit):
@@ -1184,7 +1189,7 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
         #update_progress(connection, cursor, analysis_id, sub_id, done, total)
 
 
-    logging.info("Finished families: " + str(len(finished_families)))
+    logging.debug("Finished families: " + str(len(finished_families)))
     return finished_families
 
 def get_all_dirs(path):
@@ -1231,15 +1236,15 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
     for sub_analysis in unfinished_sub_analyses:
         sub_id = sub_analysis['sub_id']
         analysis_id = sub_analysis['analysis_id']
-        logging.info(f"sub_analyses: {sub_id}")
+        logging.debug(f"sub_analyses: {sub_id}")
 
         sub_analysis_out_path = f"/cpp_work/output/{sub_id}"
-        logging.info(f'sub_analysis_out_path {sub_analysis_out_path}')
+        logging.debug(f'sub_analysis_out_path {sub_analysis_out_path}')
 
         # list all jobs in output
         if os.path.exists(sub_analysis_out_path):
             all_sub_analyses_jobs = get_all_dirs(sub_analysis_out_path)
-            logging.info(f'len(all_sub_analyses_jobs) {len(all_sub_analyses_jobs)}')
+            logging.debug(f'len(all_sub_analyses_jobs) {len(all_sub_analyses_jobs)}')
             for job in all_sub_analyses_jobs:
 
                 job_path = os.path.join(sub_analysis_out_path, job)
@@ -1253,7 +1258,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
                     finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id, "analysis_id": analysis_id}}
                     logging.debug(f"Job finished: {job}")
 
-            logging.info(f"Finished jobs after this sub {str(len(finished_jobs))}")
+            logging.debug(f"Finished jobs after this sub {str(len(finished_jobs))}")
 
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
@@ -1282,7 +1287,7 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
 
         # save the total job count for this family
         family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
-        logging.info(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
+        logging.debug(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {len(job_list)}")
         # check if there are as many finished jobs as the total job count for the family
         # for debug reasons we also check if the job limit is reached
         if family_job_count == len(job_list) or (job_limit is not None and len(job_list) == job_limit):
@@ -1438,11 +1443,10 @@ def merge_family_jobs_csv_to_parquet(family_name, cursor, connection):
 
         except Exception as e:
             errormessage = f"Failed during concat csv files, error {e}"
-            logging.error(errormessage)
+            logging.error("Failed during concat csv files, error: %s", e)
             analysis_id = get_analysis_sub_id_from_family_name(family_name)
             set_sub_analysis_error(cursor, connection, analysis_id, analysis_sub_id, errormessage)
-
-            # delete all jobs for this sub_analysis
+                    # delete all jobs for this sub_analysis
             delete_jobs(analysis_sub_id)
 
         finally:
@@ -1619,29 +1623,30 @@ def update_sub_analysis_progress_to_db(connection, cursor, analysis_id, sub_anal
 def update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, data_key, data_value):
     logging.debug(f"inside update_meta_data_to_db for {data_key}")
 
-    data = f'{{"{data_key}": "{data_value}"}}'
+    # Prepare the data using a dictionary
+    data = {data_key: data_value}
 
-    # update image_sub_analyses
+    # Update image_sub_analyses
     query = """UPDATE image_sub_analyses
                SET meta = meta || %s
                WHERE sub_id=%s
             """
 
     logging.debug("query:" + str(query))
-    cursor.execute(query, [data, sub_analysis_id])
+    cursor.execute(query, [psycopg2.extras.Json(data), sub_analysis_id])
     connection.commit()
 
-    # update image_analyses
+    # Update image_analyses
     query = """UPDATE image_analyses
                SET meta = meta || %s
                WHERE id=%s
             """
-
-    data = f'{{"{data_key}_{sub_analysis_id}": "{data_value}"}}'
-
+    # Adjust the data for image_analyses
+    data = {f"{data_key}_{sub_analysis_id}": data_value}
     logging.debug("query:" + str(query))
-    cursor.execute(query, [data, analysis_id])
+    cursor.execute(query, [psycopg2.extras.Json(data), analysis_id])
     connection.commit()
+
 
 
 def insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_root,  file_list):
@@ -2146,11 +2151,12 @@ def main():
 
             # Catch psycopg2 database errors
             except psycopg2.Error as error:
-                logging.exception("Database error: ", error)
+                logging.exception("Database error")
+
 
             # Catch value errors
             except ValueError as valerror:
-                logging.exception("Value error: ", valerror)
+                logging.exception("Value error: ")
 
             finally:
                 #closing database connection
