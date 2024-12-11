@@ -762,7 +762,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
 
-        query = ("SELECT *"
+        query = ("SELECT DISTINCT plate_acquisition_id, plate_barcode, well, site, z, channel, dye, path"
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s"
                  " AND z = %s")
