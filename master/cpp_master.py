@@ -606,7 +606,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         for img in imgs:
 
             # readability
-            imgset_id = f"{img['well']}-{img['site']}"
+            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}"
 
             # if it has been seen before
             try:
@@ -795,7 +795,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         for img in imgs:
 
             # readability
-            imgset_id = f"{img['well']}-{img['site']}"
+            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}"
 
             # if it has been seen before
             try:
