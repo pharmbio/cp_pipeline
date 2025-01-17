@@ -10,7 +10,7 @@
 # * fetch only images that have not been analysed from a plate acqusition?
 # * store the imgset file as a configmap for each job?
 # * fix the job spec yaml, the command and mount paths (root vs user etc)
-# * make sure the worker container image exists and works
+# * make se worker container image exists and works
 # * build csv straight to file to reduce memory problems, need at least 32MB at moment
 
 import psycopg2
@@ -374,7 +374,7 @@ def load_cpp_config():
     logging.debug("namespace:" + namespace)
 
     if is_debug():
-        with open('/cpp/debug_configs.yaml', 'r') as configs_debug:
+        with open('master/debug_configs.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
 
     else:
@@ -535,6 +535,27 @@ def handle_anlysis_jupyter_notebook(analysis, cursor, connection):
 #    plate_barcode, acquisition_id, analysis_id = get_plate_info(cursor, analysis['sub_id'])
 #    storage_root = {"full": f"/cpp_work/results/{plate_barcode}/{acquisition_id}/{analysis_id}", "mount_point":"/cpp_work/", "job_specific":f"results/{plate_barcode}/{acquisition_id}/{analysis_id}/"}
 
+def parse_string_of_num_and_ranges(input: str):
+    """
+    Take a string like '2-5,7,15-17,12' and turn it into a list [2, 3, 4, 5, 7, 12, 15, 16, 17]
+    """
+
+    if input.startswith("-"):
+        return [input]
+
+    numbers = set()
+
+    for element in input.split(','):
+        parts = [int(x) for x in element.split('-')]
+        if len(parts) == 1:
+            numbers.add(parts[0])
+        else:
+            for part in range(min(parts), max(parts) + 1):
+                numbers.add(part)
+
+    return list(numbers)
+
+
 
 def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
 
@@ -548,6 +569,23 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             analysis_meta = analysis['meta']
         except KeyError:
             logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
+
+
+        # fetch the channel map for the acqusition
+        logging.info('Running channel map query.')
+        cursor.execute(f'''
+                            SELECT dye
+                            FROM channel_map
+                            WHERE map_id=(SELECT channel_map_id
+                                          FROM plate_acquisition
+                                          WHERE id={analysis['plate_acquisition_id']})
+                           ''')
+        channel_map_res = cursor.fetchall()
+        channels = [row['dye'] for row in channel_map_res]
+
+        # make sure channel map is populated
+        if len(channels) == 0:
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         # check if sites filter is included
         site_filter = None
@@ -563,11 +601,15 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         if 'channels' in analysis_meta:
             channels_filter = list(analysis_meta['channels'])
 
-        # to do fix this
+        # check if z filter is included
+        # otherwise set default
+        z_filter = None
         if 'z' in analysis_meta:
-            z = analysis_meta['z']
+            z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
-            z = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+            # Retrieve the first z plane, then make a list out of it
+            z_value = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+            z_filter = [z_value]
 
 
         # fetch all images belonging to the plate acquisition
@@ -576,7 +618,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         query = ("SELECT DISTINCT plate_acquisition_id, plate_barcode, timepoint, well, site, z, channel, dye, path"
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s"
-                 " AND z = %s")
+        )
 
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
@@ -587,11 +629,14 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         if channels_filter:
             query += ' AND dye IN (' + ','.join("'{0}'".format(chan) for chan in channels_filter) + ")"
 
+        if z_filter:
+            query += ' AND z IN (' + ','.join("'{0}'".format(z) for z in z_filter) + ")"
+
         query += " ORDER BY timepoint, well, site, channel"
 
         logging.info("query: " + query)
 
-        cursor.execute(query, (analysis['plate_acquisition_id'], z, ))
+        cursor.execute(query, [ analysis['plate_acquisition_id']])
         imgs = cursor.fetchall()
 
         # if imgs is empty raise error
@@ -606,7 +651,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
         for img in imgs:
 
             # readability
-            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}"
+            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}-{img['z']}"
 
             # if it has been seen before
             try:
@@ -739,6 +784,23 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         except KeyError:
             logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
 
+
+        # fetch the channel map for the acqusition
+        logging.info('Running channel map query.')
+        cursor.execute(f'''
+                            SELECT dye
+                            FROM channel_map
+                            WHERE map_id=(SELECT channel_map_id
+                                          FROM plate_acquisition
+                                          WHERE id={analysis['plate_acquisition_id']})
+                           ''')
+        channel_map_res = cursor.fetchall()
+        channels = [row['dye'] for row in channel_map_res]
+
+        # make sure channel map is populated
+        if len(channels) == 0:
+            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
+
         # check if sites filter is included
         site_filter = None
         if 'site_filter' in analysis_meta:
@@ -753,11 +815,15 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         if 'channels' in analysis_meta:
             channels_filter = list(analysis_meta['channels'])
 
+        # check if z filter is included
+        # otherwise set default
+        z_filter = None
         if 'z' in analysis_meta:
-            z = analysis_meta['z']
+            z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
-            z = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
-
+            # Retrieve the first z plane, then make a list out of it
+            z_value = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+            z_filter = [z_value]
 
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
@@ -765,7 +831,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         query = ("SELECT DISTINCT plate_acquisition_id, plate_barcode, timepoint, well, site, z, channel, dye, path"
                  " FROM images_all_view"
                  " WHERE plate_acquisition_id=%s"
-                 " AND z = %s")
+        )
 
         if site_filter:
             query += f' AND site IN ({ ",".join( map( str, site_filter )) }) '
@@ -776,11 +842,14 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         if channels_filter:
             query += ' AND dye IN (' + ','.join("'{0}'".format(chan) for chan in channels_filter) + ")"
 
+        if z_filter:
+            query += ' AND z IN (' + ','.join("'{0}'".format(z) for z in z_filter) + ")"
+
         query += " ORDER BY timepoint, well, site, channel"
 
         logging.info("query: " + query)
 
-        cursor.execute(query, (analysis['plate_acquisition_id'], z, ))
+        cursor.execute(query, [ analysis['plate_acquisition_id']])
         imgs = cursor.fetchall()
 
         # if imgs is empty raise error
@@ -795,7 +864,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         for img in imgs:
 
             # readability
-            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}"
+            imgset_id = f"tp{img['timepoint']}-{img['well']}-{img['site']}-{img['z']}"
 
             # if it has been seen before
             try:
@@ -2063,22 +2132,19 @@ def get_storage_paths(plate_barcode, acquisition_id, analysis_id):
         }
     return storage_paths
 
-def main():
-
-    try:
-
+def setup_logging(log_level):
         # set up logging to file
         now = datetime.datetime.now()
         now_string = now.strftime("%Y-%m-%d_%H.%M.%S.%f")
 
-        print (f"is_debug {is_debug()}")
+        print(f"is_debug {is_debug()}")
 
-        log_prefix = ""
-        if is_debug():
+        if log_level == logging.DEBUG:
             log_prefix = "debug."
+        else:
+            log_prefix = ""
 
         logfile_name = "/cpp_work/logs/cpp_master." + log_prefix + now_string + ".log"
-        log_level = logging.DEBUG if is_debug() else logging.INFO
 
         logging.basicConfig(format='%(asctime)s,%(msecs)d %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                             datefmt='%Y-%m-%d:%H:%M:%S',
@@ -2087,7 +2153,6 @@ def main():
                             filemode='w')
 
         # define a Handler which writes INFO messages or higher to the sys.stderr
-
         console = logging.StreamHandler()
         console.setLevel(log_level)
 
@@ -2099,9 +2164,12 @@ def main():
         # add the handler to the root logger
         logging.getLogger('').addHandler(console)
 
-        logging.info("isdebug:" + str(is_debug()))
+def main():
 
-        logging.getLogger("kubernetes").setLevel(logging.WARNING)
+    try:
+
+        log_level = logging.DEBUG if is_debug() else logging.INFO
+        setup_logging(log_level)
 
         # set file permissions on ssh key
         #os.chmod('/root/.ssh/id_rsa', 0o600)
@@ -2124,7 +2192,6 @@ def main():
                 init_kubernetes_connection()
                 cpp_config = load_cpp_config()
                 connection, cursor = connect_db(cpp_config)
-
 
                 # debug function to reset specified jobs to just-submitted state
                 if len(sys.argv) > 1 and sys.argv[1] == "reset" and first_reset:
