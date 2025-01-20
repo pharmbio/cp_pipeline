@@ -373,18 +373,21 @@ def load_cpp_config():
     namespace = get_namespace()
     logging.debug("namespace:" + namespace)
 
+    logging.debug(f"is_debug: {is_debug()}")
+
     if is_debug():
         with open('master/debug_configs.yaml', 'r') as configs_debug:
             cpp_config = yaml.load(configs_debug, Loader=yaml.FullLoader)
+            postgres_password = os.environ.get('DB_PASS')
+            cpp_config['postgres']['password'] = postgres_password
 
     else:
         configmap = kubernetes.client.CoreV1Api().read_namespaced_config_map("cpp-configs", namespace)
         cpp_config = yaml.load(configmap.data['configs.yaml'], Loader=yaml.FullLoader)
-
-    # fetch db secret
-    secret = kubernetes.client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
-    postgres_password = base64.b64decode(secret.data['password.postgres']).decode().strip()
-    cpp_config['postgres']['password'] = postgres_password
+        secret = kubernetes.client.CoreV1Api().read_namespaced_secret("postgres-password", "cpp")
+        # fetch db secret
+        postgres_password = base64.b64decode(secret.data['password.postgres']).decode().strip()
+        cpp_config['postgres']['password'] = postgres_password
 
     # fetch uppmax secrets
     cpp_config['uppmax_user'] = cpp_config['uppmax']['user']
@@ -569,23 +572,6 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             analysis_meta = analysis['meta']
         except KeyError:
             logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
-
-
-        # fetch the channel map for the acqusition
-        logging.info('Running channel map query.')
-        cursor.execute(f'''
-                            SELECT dye
-                            FROM channel_map
-                            WHERE map_id=(SELECT channel_map_id
-                                          FROM plate_acquisition
-                                          WHERE id={analysis['plate_acquisition_id']})
-                           ''')
-        channel_map_res = cursor.fetchall()
-        channels = [row['dye'] for row in channel_map_res]
-
-        # make sure channel map is populated
-        if len(channels) == 0:
-            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
 
         # check if sites filter is included
         site_filter = None
@@ -784,23 +770,6 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         except KeyError:
             logging.error(f"Unable to get analysis_meta settings for analysis: sub_id={sub_analysis_id}")
 
-
-        # fetch the channel map for the acqusition
-        logging.info('Running channel map query.')
-        cursor.execute(f'''
-                            SELECT dye
-                            FROM channel_map
-                            WHERE map_id=(SELECT channel_map_id
-                                          FROM plate_acquisition
-                                          WHERE id={analysis['plate_acquisition_id']})
-                           ''')
-        channel_map_res = cursor.fetchall()
-        channels = [row['dye'] for row in channel_map_res]
-
-        # make sure channel map is populated
-        if len(channels) == 0:
-            raise ValueError('Channel map is empty, possible error in plate acqusition id.')
-
         # check if sites filter is included
         site_filter = None
         if 'site_filter' in analysis_meta:
@@ -824,6 +793,8 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             # Retrieve the first z plane, then make a list out of it
             z_value = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
             z_filter = [z_value]
+
+        logging.info(f"z_filter: {z_filter}")
 
         # fetch all images belonging to the plate acquisition
         logging.info('Fetching images belonging to plate acqusition.')
@@ -888,6 +859,9 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         # make sure channel map is populated
 
         channel_map = {}
+
+        logging.debug(f"channels_filter {channels_filter}")
+        logging.debug(f"channel_map_res {channel_map_res}")
         # Check if the analysis_meta channels list is provided; if not, include all results without filtering
         if channels_filter is None:
             # Include all channels from the results without filtering
@@ -896,7 +870,9 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         else:
             # Filter the results to include only those where the dye is in the 'channels' list
             for channel in channel_map_res:
+                logging.debug(f"channel {channel}")
                 if channel['dye'] in channels_filter:
+                    logging.debug(f"channel[d'ye'] {channel['dye']}")
                     channel_map[channel['channel']] = channel['dye']
 
         if len(channel_map) == 0:
@@ -963,8 +939,11 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             # Check if icf headers should be added to imgset csv file, default is False
             use_icf = analysis_meta.get('use_icf', False)
             logging.debug("use_icf" + str(use_icf))
-             # generate cellprofiler imgset file for this imgset
+            # generate cellprofiler imgset file for this imgset
+            logging.debug(f"channel_map: {channel_map}")
             imageset_content = make_imgset_csv(imgsets=imgset_chunk, channel_map=channel_map, storage_paths=storage_paths, use_icf=use_icf)
+
+            logging.debug(f"imgset: {imageset_content[:2000]}")
 
             # create a folder for the file if needed
             os.makedirs(os.path.dirname(imageset_file), exist_ok=True)
@@ -977,6 +956,10 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             if job_limit is not None and i >= (job_limit-1):
                 print("exit here")
                 break
+
+            if is_debug():
+                logging.error("Is debug, exit here")
+                exit()
 
         # when all chunks of the sub analysis are sent in, mark the sub analysis as started
         #mark_analysis_as_started(cursor, connection, analysis['analysis_id'])
@@ -1629,6 +1612,22 @@ def get_analysis_info(cursor, analysis_id):
     plate_info = cursor.fetchone()
 
     return plate_info
+
+def get_analysis_from_db(cursor, analysis_id):
+
+    # fetch all images belonging to the plate acquisition
+    logging.info('Fetching plate info from view.')
+    query = f"""
+                        SELECT *
+                        FROM image_analyses_v1
+                        WHERE id='{analysis_id}'
+                       """ # also NOT IN (select * from images_analysis where analysed=None) or something
+
+    logging.debug(query)
+    cursor.execute(query)
+    analysis = cursor.fetchone()
+
+    return analysis
 
 def get_first_z_plane(cursor, acq_id):
     # Log the start of fetching data
