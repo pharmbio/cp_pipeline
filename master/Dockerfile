@@ -21,3 +21,5 @@ RUN groupadd -g 20000 cpp && \
 
 # add scripts last
 COPY cpp_master.py /cpp/
+COPY hpc_utils.py /cpp/
+COPY database.py /cpp/

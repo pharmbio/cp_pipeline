@@ -22,7 +22,8 @@ spec:
       - name: cpp-master
         image: ghcr.io/pharmbio/cpp_master:stable
         imagePullPolicy: Always
-        command: ["python3", "/cpp/cpp_master.py"]
+        workingDir: /cpp
+        command: ["python3", "cpp_master.py"]
         resources:
           limits:
             cpu: 6000m

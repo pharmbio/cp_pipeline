@@ -37,6 +37,8 @@ import time
 import pandas as pd
 import pyarrow
 import subprocess
+import hpc_utils
+from database import Database
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
@@ -407,9 +409,20 @@ def load_cpp_config():
 
 def connect_db(cpp_config):
 
+    # init new database
+    # Initialize new Database connection pool
+    db_settings = {
+        "host": cpp_config['postgres']['host'],
+        "port": cpp_config['postgres']['port'],
+        "database": cpp_config['postgres']['db'],
+        "user": cpp_config['postgres']['user'],
+        "password": cpp_config['postgres']['password']
+    }
+    Database.get_instance().initialize_connection_pool(**db_settings)
 
     # connect to the db
     logging.debug("Connecting to db.")
+
     connection = None
     connection = psycopg2.connect(  database=cpp_config['postgres']['db'],
                                     user=cpp_config['postgres']['user'],
@@ -1996,6 +2009,10 @@ def has_sub_analysis_error(cursor, connection, sub_analysis_id):
     # Query to check for errors in the sub-analysis
     query = """SELECT error FROM image_sub_analyses
                WHERE sub_id = %s"""
+
+    # Log the fully expanded SQL statement
+    logging.info("Mogrified SQL: %s", cursor.mogrify(query, [sub_analysis_id]))
+
     cursor.execute(query, [sub_analysis_id])
     result = cursor.fetchone()
 
@@ -2004,8 +2021,8 @@ def has_sub_analysis_error(cursor, connection, sub_analysis_id):
         return True
     else:
         # Check if the error column indicates an error
-        has_error = result[0]
-        return bool(has_error)  # True if error is present, False otherwise
+        has_error = result["error"]
+        return bool(has_error)
 
 def get_sub_analysis_start(connection, cursor, sub_id):
     query = """ SELECT start FROM image_sub_analyses
@@ -2226,6 +2243,9 @@ def main():
 
                 # check for finished analyses
                 handle_finished_analyses(cursor, connection)
+
+                # update hpc status
+                hpc_utils.update_hpc_job_status(Database.get_instance(), cpp_config['uppmax']['user'], cpp_config['uppmax']['hostname'])
 
 
             # Catch psycopg2 database errors
