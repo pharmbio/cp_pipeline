@@ -1317,8 +1317,8 @@ def fetch_finished_job_families_uppmax(cursor, connection, job_limit = None):
                 #logging.info(f'job_path {job_path}')
 
                 if os.path.exists(os.path.join(job_path, "error")):
-                    # skip this one
                     logging.debug(f"Error job {job}")
+                    finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id, "analysis_id": analysis_id}}
                 elif os.path.exists(os.path.join(job_path, "finished")):
                     finished_jobs[job] = {"metadata": {"name": job, "sub_id": sub_id, "analysis_id": analysis_id}}
                     logging.debug(f"Job finished: {job}")
