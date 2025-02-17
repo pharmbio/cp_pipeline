@@ -449,6 +449,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
              SELECT *
              FROM image_sub_analyses
              WHERE start IS NULL
+             AND error IS NULL
              ORDER by priority, sub_id
             '''
     logging.debug(query)
