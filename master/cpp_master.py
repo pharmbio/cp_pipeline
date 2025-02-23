@@ -316,6 +316,8 @@ spec:
           name: mikroimages
         - mountPath: /share/mikro2/
           name: mikroimages2
+        - mountPath: /share/mikro3/
+          name: mikroimages3
         - mountPath: /cpp_work
           name: cpp2
         - mountPath: /share/data/external-datasets
@@ -328,6 +330,9 @@ spec:
       - name: mikroimages2
         persistentVolumeClaim:
           claimName: micro2-images-pvc
+      - name: mikroimages3
+        persistentVolumeClaim:
+          claimName: micro3-images-pvc
       #- name: cpp
       #  persistentVolumeClaim:
       #    claimName: cpp-pvc
@@ -469,7 +474,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     # now check for unstarted that should run on cluster
     for analysis in analyses:
-
+        
         # check the analysis type and process by analysis specific function
         if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta']:
 
