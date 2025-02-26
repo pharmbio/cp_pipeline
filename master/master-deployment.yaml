@@ -43,7 +43,7 @@ spec:
           name: uppmax-ssh  
       restartPolicy: Always
       nodeSelector:
-        kubernetes.io/hostname: brolin
+        kubernetes.io/hostname: cpuserver
       priorityClassName: normal-priority-preempt
       volumes:
      # - name: cpp

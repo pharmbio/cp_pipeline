@@ -1655,7 +1655,7 @@ def get_median_z_plane(cursor, acq_id):
 
     # SQL query to select the median z value using percentile_cont
     query = """
-            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY z) AS median_z
+            SELECT CAST(percentile_cont(0.5) WITHIN GROUP (ORDER BY z) AS integer) AS median_z
             FROM images
             WHERE plate_acquisition_id = %s
             """
