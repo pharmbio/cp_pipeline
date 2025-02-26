@@ -474,7 +474,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
     # now check for unstarted that should run on cluster
     for analysis in analyses:
-        
+
         # check the analysis type and process by analysis specific function
         if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta']:
 
@@ -607,13 +607,13 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             channels_filter = list(analysis_meta['channels'])
 
         # check if z filter is included
-        # otherwise set default
+        # otherwise set default (median)
         z_filter = None
         if 'z' in analysis_meta:
             z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
-            # Retrieve the first z plane, then make a list out of it
-            z_value = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+            # Retrieve the median z plane, then make a list out of it
+            z_value = get_median_z_plane(cursor, analysis['plate_acquisition_id'])
             z_filter = [z_value]
 
 
@@ -809,8 +809,8 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
         if 'z' in analysis_meta:
             z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
-            # Retrieve the first z plane, then make a list out of it
-            z_value = get_first_z_plane(cursor, analysis['plate_acquisition_id'])
+            # Retrieve the median z plane, then make a list out of it
+            z_value = get_median_z_plane(cursor, analysis['plate_acquisition_id'])
             z_filter = [z_value]
 
         logging.info(f"z_filter: {z_filter}")
@@ -1647,6 +1647,29 @@ def get_analysis_from_db(cursor, analysis_id):
     analysis = cursor.fetchone()
 
     return analysis
+
+
+def get_median_z_plane(cursor, acq_id):
+    # Log the start of fetching data
+    logging.info(f'Fetching median z-plane for plate acquisition ID: {acq_id}')
+
+    # SQL query to select the median z value using percentile_cont
+    query = """
+            SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY z) AS median_z
+            FROM images
+            WHERE plate_acquisition_id = %s
+            """
+    # Log the query string
+    logging.info('Executing query: %s with ID: %s', query.strip(), acq_id)
+
+    # Execute the SQL query with the provided acquisition ID
+    cursor.execute(query, (acq_id,))
+
+    # Fetch the result as a dictionary
+    result = cursor.fetchone()
+
+    return result['median_z']
+
 
 def get_first_z_plane(cursor, acq_id):
     # Log the start of fetching data
