@@ -613,7 +613,7 @@ def handle_analysis_cellprofiler(analysis, cursor, connection, job_limit=None):
             z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
             # Retrieve the median z plane, then make a list out of it
-            z_value = get_median_z_plane(cursor, analysis['plate_acquisition_id'])
+            z_value = get_middle_z_plane(cursor, analysis['plate_acquisition_id'])
             z_filter = [z_value]
 
 
@@ -810,7 +810,7 @@ def handle_analysis_cellprofiler_uppmax(analysis, cursor, connection, job_limit=
             z_filter = parse_string_of_num_and_ranges(analysis_meta['z'])
         else:
             # Retrieve the median z plane, then make a list out of it
-            z_value = get_median_z_plane(cursor, analysis['plate_acquisition_id'])
+            z_value = get_middle_z_plane(cursor, analysis['plate_acquisition_id'])
             z_filter = [z_value]
 
         logging.info(f"z_filter: {z_filter}")
@@ -1649,26 +1649,32 @@ def get_analysis_from_db(cursor, analysis_id):
     return analysis
 
 
-def get_median_z_plane(cursor, acq_id):
-    # Log the start of fetching data
-    logging.info(f'Fetching median z-plane for plate acquisition ID: {acq_id}')
-
-    # SQL query to select the median z value using percentile_cont
+def get_middle_z_plane(cursor, acq_id):
+    logging.info(f'Fetching distinct z-plane values for plate acquisition ID: {acq_id}')
+    
+    # Get a sorted list of unique z values
     query = """
-            SELECT CAST(percentile_cont(0.5) WITHIN GROUP (ORDER BY z) AS integer) AS median_z
+            SELECT DISTINCT z
             FROM images
             WHERE plate_acquisition_id = %s
+            ORDER BY z ASC
             """
-    # Log the query string
     logging.info('Executing query: %s with ID: %s', query.strip(), acq_id)
-
-    # Execute the SQL query with the provided acquisition ID
     cursor.execute(query, (acq_id,))
-
-    # Fetch the result as a dictionary
-    result = cursor.fetchone()
-
-    return result['median_z']
+    results = cursor.fetchall()
+    
+    # Create a list of unique z values
+    z_values = [row['z'] for row in results]
+    
+    if not z_values:
+        logging.warning('No distinct z values found for plate acquisition ID: %s', acq_id)
+        return None
+    
+    # Determine the middle index (using lower middle for even counts)
+    middle_index = (len(z_values) - 1) // 2
+    logging.debug(f"Total unique z values: {len(z_values)}. Middle index: {middle_index}")
+    
+    return z_values[middle_index]
 
 
 def get_first_z_plane(cursor, acq_id):
