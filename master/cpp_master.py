@@ -496,6 +496,8 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             # check the analysis type and process by analysis specific function
             if analysis['meta']['type'] == 'cellprofiler':
                 handle_analysis_cellprofiler(analysis, cursor, connection, job_limit)
+                # mark queue as non-empty from now on
+                queue_empty = False
             elif analysis['meta']['type'] == 'jupyter_notebook':
                 handle_anlysis_jupyter_notebook(analysis, cursor, connection)
             else:
