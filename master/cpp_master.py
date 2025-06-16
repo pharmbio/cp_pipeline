@@ -1171,6 +1171,23 @@ def is_kubernetes_job_queue_empty():
 def delete_finished_jobpods():
     logging.info("inside delete_finished_jobpods")
     namespace = get_namespace()
+    core = kubernetes.client.CoreV1Api()
+
+    # Bulk‐delete every Pod in Succeeded phase
+    core.delete_collection_namespaced_pod(
+        namespace=namespace,
+        field_selector="status.phase=Succeeded",
+        grace_period_seconds=15,
+        propagation_policy="Background"  # fire-and-forget
+    )
+
+    logging.info("done delete_finished_jobpods")
+
+
+
+def delete_finished_jobpods_old():
+    logging.info("inside delete_finished_jobpods")
+    namespace = get_namespace()
     k8s_batch_api = kubernetes.client.BatchV1Api()
     k8s_core_api = kubernetes.client.CoreV1Api()
 
