@@ -46,9 +46,6 @@ spec:
         kubernetes.io/hostname: cpuserver
       priorityClassName: normal-priority-preempt
       volumes:
-     # - name: cpp
-     #   persistentVolumeClaim:
-     #     claimName: cpp-pvc
       - name: cpp2
         persistentVolumeClaim:
           claimName: cpp2-pvc

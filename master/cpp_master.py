@@ -362,7 +362,7 @@ def is_debug():
 
 def get_namespace():
     if is_debug():
-        namespace = 'cpp-debug'
+        namespace = 'cpp'
     else:
         namespace = 'cpp'
     return namespace
@@ -371,7 +371,9 @@ def get_namespace():
 def init_kubernetes_connection():
 
     # load the kube config
-    kubernetes.config.load_kube_config(str(pathlib.Path.home()) + '/.kube/config')
+    kube_config_path = str(pathlib.Path.home()) + '/.kube/config'
+    logging.debug(f"kube config path: {kube_config_path}")
+    kubernetes.config.load_kube_config(kube_config_path)
 
 
 def load_cpp_config():
@@ -1204,19 +1206,18 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
         # convert to dict for usability
         job_dict = job.to_dict()
 
-        # if the job has not started yet
-        if job_dict['status']['conditions'] == None:
-            continue
+        conditions = job_dict['status'].get('conditions', [])
+        condition_types = [c.get('type') for c in conditions]
+        logging.debug(f"Job {job_dict['metadata']['name']} conditions: {condition_types}")
 
-        # if the job's state is completed, save it in a new dict with job name as key
-        if job_dict['status']['conditions'][0]['type'] == 'Complete':
+        is_complete = any(c.get('type') == 'Complete' and c.get('status') == 'True' for c in conditions)
+        is_failed = any(c.get('type') == 'Failed' and c.get('status') == 'True' for c in conditions)
+
+        if is_complete:
             finished_jobs[job_dict['metadata']['name']] = job_dict
-
-        elif job_dict['status']['conditions'][0]['type'] == 'Failed':
+        elif is_failed:
             handle_sub_analysis_error(cursor, connection, job_dict)
-            # this is maybe hacky but add failed job to finished
             finished_jobs[job_dict['metadata']['name']] = job_dict
-
 
     logging.info("Finished jobs done " + str(len(finished_jobs)))
 
@@ -1887,7 +1888,7 @@ def handle_finished_analyses(cursor, connection):
             # check if it ended unsuccessfully
             if sub_analysis['error']:
 
-                # if so, mark the analysis as failed and contact an adult
+                # if so, mark the analysis as failed
                 no_failed_subs = False
 
             # else save the file list
