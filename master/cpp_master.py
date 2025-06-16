@@ -1206,7 +1206,10 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
         # convert to dict for usability
         job_dict = job.to_dict()
 
-        conditions = job_dict['status'].get('conditions', [])
+        conditions = job_dict['status'].get('conditions')
+        if not conditions:
+            continue
+
         condition_types = [c.get('type') for c in conditions]
         logging.debug(f"Job {job_dict['metadata']['name']} conditions: {condition_types}")
 
@@ -2309,7 +2312,7 @@ def main():
 
     # Catch all errors
     except Exception as e:
-        logging.error("Exception", e)
+        logging.error("Exception: %s", e)
 
 
 if __name__ == "__main__":
