@@ -475,6 +475,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
 
 
     # now check for unstarted that should run on cluster
+    queue_empty = is_kubernetes_job_queue_empty()
     for analysis in analyses:
 
         # check the analysis type and process by analysis specific function
@@ -485,7 +486,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
             priority = analysis['meta'].get('priority', 0)
 
             # Check if kubernetes job queue is empty or priority is highest
-            if not is_kubernetes_job_queue_empty() and priority != 1:
+            if not queue_empty and priority != 1:
                 break
 
             # skip analyiss if there are unmet dependencies
