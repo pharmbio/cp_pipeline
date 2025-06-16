@@ -1264,14 +1264,23 @@ def fetch_finished_job_families(cursor, connection, job_limit = None):
     for family_name, job_list in job_buckets.items():
 
         # save the total job count for this family
-        family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
-        done_count = len(job_list)
-        logging.debug(f"fam-job-count: {family_job_count}\tfinished-job-list-len: {done_count}")
 
-        #  ── update DB with progress/ETA ──
-        analysis_id = job_list[0]['metadata']['analysis_id']
-        sub_id      = job_list[0]['metadata']['sub_id']
-        update_progress(connection, cursor, analysis_id, sub_id, done_count, family_job_count)
+        family_job_count = get_family_job_count_from_job_name(job_list[0]['metadata']['name'])
+        #── update meta.progress in DB ──
+        # both analysis_id & sub_analysis_id live in metadata.labels
+        labels = job_list[0]['metadata'].get('labels', {})
+        try:
+            analysis_id     = int(labels['analysis_id'])
+            sub_analysis_id = int(labels['sub_analysis_id'])
+            # record “done / total” + ETA
+            update_progress(connection, cursor,
+                            analysis_id,
+                            sub_analysis_id,
+                            done=len(job_list),
+                            total=family_job_count)
+        except (KeyError, ValueError):
+            # if labels aren’t there, we just skip progress update
+            logging.debug("Could not update progress: missing labels on job")
 
         # check if there are as many finished jobs as the total job count for the family
         # for debug reasons we also check if the job limit is reached
