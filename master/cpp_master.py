@@ -1149,7 +1149,7 @@ def get_joblist():
 
 def is_kubernetes_job_queue_empty():
 
-    logging.debug("Inside is_kubernetes_job_queue_empty");
+    logging.info("Inside is_kubernetes_job_queue_empty");
 
     # list all jobs in namespace
     k8s_batch_api = kubernetes.client.BatchV1Api()
@@ -1165,7 +1165,7 @@ def is_kubernetes_job_queue_empty():
         logging.debug("Queue is not empty, exit loop")
         break
 
-    logging.debug("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
+    logging.info("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
     return is_queue_empty
 
 def delete_finished_jobpods():
