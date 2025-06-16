@@ -24,26 +24,27 @@ import random
 import base64
 import os
 import pathlib
-import pdb
 import json
 import string
 import itertools
 import math
 import pathlib
-import csv
 import shutil
 import datetime
 import time
 import pandas as pd
 import pyarrow
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
 import hpc_utils
 from database import Database
 
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
 
-    # create iterator of the dict
+    # create iterator of the dictimport pdb
     it = iter(data)
 
     # for each step
@@ -1768,39 +1769,44 @@ def get_sub_analysis_info(cursor, analysis_sub_id):
 
 def update_sub_analysis_errormsg_to_db(connection, cursor, analysis_id, sub_analysis_id, errormessage):
     # TODO first get current errormessage, then append id
-    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "error", errormessage)
+    update_status_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "error", errormessage)
 
 def update_sub_analysis_status_to_db(connection, cursor, analysis_id, sub_analysis_id, status):
-    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "status", status)
+    update_status_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "status", status)
 
 def update_sub_analysis_progress_to_db(connection, cursor, analysis_id, sub_analysis_id, progress):
-    update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "progress", progress)
+    update_status_data_to_db(connection, cursor, analysis_id, sub_analysis_id, "progress", progress)
 
-def update_meta_data_to_db(connection, cursor, analysis_id, sub_analysis_id, data_key, data_value):
-    logging.debug(f"inside update_meta_data_to_db for {data_key}")
+def update_status_data_to_db(connection, cursor,
+                             analysis_id: int,
+                             sub_analysis_id: int,
+                             data_key: str,
+                             data_value: str):
+    """
+    Merge a single key/value into the JSONB `status` column
+    of both image_sub_analyses and image_analyses.
+    """
+    logging.debug(f"Updating status[{data_key}] for sub_id={sub_analysis_id}")
 
-    # Prepare the data using a dictionary
-    data = {data_key: data_value}
+    # Merge into image_sub_analyses.status, initializing to {} if NULL
+    sub_q = """
+      UPDATE image_sub_analyses
+         SET status = COALESCE(status, '{}'::jsonb) || %s
+       WHERE sub_id = %s
+    """
+    sub_data = {data_key: data_value}
+    cursor.execute(sub_q, [psycopg2.extras.Json(sub_data), sub_analysis_id])
 
-    # Update image_sub_analyses
-    query = """UPDATE image_sub_analyses
-               SET meta = meta || %s
-               WHERE sub_id=%s
-            """
+    # Merge into image_analyses.status
+    # Use a distinct key so multiple sub-analyses don't collide
+    parent_q = """
+      UPDATE image_analyses
+         SET status = COALESCE(status, '{}'::jsonb) || %s
+       WHERE id = %s
+    """
+    parent_data = {f"{data_key}_{sub_analysis_id}": data_value}
+    cursor.execute(parent_q, [psycopg2.extras.Json(parent_data), analysis_id])
 
-    logging.debug("query:" + str(query))
-    cursor.execute(query, [psycopg2.extras.Json(data), sub_analysis_id])
-    connection.commit()
-
-    # Update image_analyses
-    query = """UPDATE image_analyses
-               SET meta = meta || %s
-               WHERE id=%s
-            """
-    # Adjust the data for image_analyses
-    data = {f"{data_key}_{sub_analysis_id}": data_value}
-    logging.debug("query:" + str(query))
-    cursor.execute(query, [psycopg2.extras.Json(data), analysis_id])
     connection.commit()
 
 
@@ -2255,6 +2261,59 @@ def setup_logging(log_level):
         # add the handler to the root logger
         logging.getLogger('').addHandler(console)
 
+def merge_and_move(family_name, job_list, cursor, connection):
+    """
+    Merge a family’s CSVs into Parquet, move the results into storage,
+    and insert the final file list into the DB.
+    """
+    sub_id = get_analysis_sub_id_from_family_name(family_name)
+    storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_id)
+
+    # 1) Merge into Parquet
+    merge_family_jobs_csv_to_parquet(family_name, cursor, connection)
+
+    # 2) Move into final storage
+    files_created = move_job_results_to_storage(family_name, job_list, storage_paths)
+
+    # 3) Record results in DB
+    insert_sub_analysis_results_to_db(connection, cursor, sub_id, storage_paths, files_created)
+
+# a global executor (1 thread) and a lock set
+merge_executor = ThreadPoolExecutor(max_workers=1)
+in_processing_families = set()
+in_processing_families_lock = threading.Lock()
+
+def process_finished_families(finished_families, cursor, connection):
+    """
+    Throttle merging/moving of finished_families (max 1 at a time),
+    ensure each family is only worked on once, and record results.
+    """
+
+    def worker(family, jobs):
+        with in_processing_families_lock:
+            in_processing_families.add(family)
+        try:
+            merge_and_move(family, jobs, cursor, connection)
+        except Exception:
+            logging.exception(f"Error in merge_and_move for family {family}")
+        finally:
+            with in_processing_families_lock:
+                in_processing_families.remove(family)
+
+    # pick out any families not already processing
+    to_submit = {
+        fam: jobs
+        for fam, jobs in finished_families.items()
+        if fam not in in_processing_families
+    }
+
+    # fire-and-forget submit
+    for fam, jobs in to_submit.items():
+        merge_executor.submit(worker, fam, jobs)
+        # drop from finished_families immediately so we won't resubmit next tick
+        finished_families.pop(fam, None)
+
+
 def main():
 
     try:
@@ -2298,23 +2357,8 @@ def main():
                 finished_families_uppmax = fetch_finished_job_families_uppmax(cursor, connection, job_limit = job_limit)
                 finished_families.update(finished_families_uppmax)
 
-                # merge finised jobs for each family (i.e. merge jobs for a sub analysis)
-                for family_name, job_list in finished_families.items():
-
-                    sub_analysis_id = get_analysis_sub_id_from_family_name(family_name)
-
-                    # final results should be stored in an analysis id based folder e.g. all sub ids beling to the same analyiss id sould be stored in the same folder
-                    storage_paths = get_storage_paths_from_sub_analysis_id(cursor, sub_analysis_id)
-
-                    # merge all job csvs into family csv
-                    files_created = merge_family_jobs_csv_to_parquet(family_name, cursor, connection)
-
-                    # move all files to storage, e.g. results folder
-                    files_created = move_job_results_to_storage(family_name, job_list, storage_paths)
-
-                    # insert csv to db
-                    insert_sub_analysis_results_to_db(connection, cursor, sub_analysis_id, storage_paths, files_created)
-
+                # merge and move finised jobs for each family (i.e. merge jobs for a sub analysis)
+                process_finished_families(finished_families, cursor, connection)
 
                 # check for finished analyses
                 handle_finished_analyses(cursor, connection)
