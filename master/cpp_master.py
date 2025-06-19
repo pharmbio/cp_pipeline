@@ -370,11 +370,23 @@ def get_namespace():
 
 
 def init_kubernetes_connection():
+    """
+    If DEBUG=True, load the local kubeconfig from ~/.kube/config.
+    Otherwise (in-cluster) load the service-account credentials.
+    """
+    if is_debug():
+        kube_cfg = pathlib.Path.home() / '.kube' / 'config'
+        logging.debug(f"🔍 DEBUG mode: loading local kubeconfig from {kube_cfg}")
+        kubernetes.config.load_kube_config(str(kube_cfg))
+    else:
+        logging.debug("🚀 Production mode: loading in-cluster service account")
+        kubernetes.config.load_incluster_config()
 
-    # load the kube config
-    kube_config_path = str(pathlib.Path.home()) + '/.kube/config'
-    logging.debug(f"kube config path: {kube_config_path}")
-    kubernetes.config.load_kube_config(kube_config_path)
+    # Grab the loaded config and set it as the default for new ApiClients
+    loaded = kubernetes.client.Configuration.get_default_copy()
+    kubernetes.client.Configuration.set_default(loaded)
+
+    logging.info(f"✅ Kubernetes client configured to talk to: {loaded.host}")
 
 
 def load_cpp_config():
