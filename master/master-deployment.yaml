@@ -15,6 +15,7 @@ spec:
       labels:
         app: cpp-master
     spec:
+      serviceAccountName: cpp-server-sa
       securityContext:
         runAsUser: 20000
         fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed

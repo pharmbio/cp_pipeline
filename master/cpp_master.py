@@ -2299,30 +2299,40 @@ def process_finished_families(finished_families, cursor, connection):
     """
     Throttle merging/moving of finished_families (max 1 at a time),
     ensure each family is only worked on once, and record results.
-    """
 
+    Each worker thread opens its own DB connection so it doesn't
+    end up using a cursor closed by the main loop.
+    """
     def worker(family, jobs):
+        # mark as in-progress
         with in_processing_families_lock:
             in_processing_families.add(family)
         try:
-            merge_and_move(family, jobs, cursor, connection)
+            # open a fresh connection/cursor for this thread
+            cpp_config = load_cpp_config()
+            conn, cur = connect_db(cpp_config)
+            try:
+                merge_and_move(family, jobs, cur, conn)
+            finally:
+                cur.close()
+                conn.close()
         except Exception:
             logging.exception(f"Error in merge_and_move for family {family}")
         finally:
+            # remove from in-progress set
             with in_processing_families_lock:
                 in_processing_families.remove(family)
 
-    # pick out any families not already processing
+    # pick out any families not already being processed
     to_submit = {
         fam: jobs
         for fam, jobs in finished_families.items()
         if fam not in in_processing_families
     }
 
-    # fire-and-forget submit
+    # fire-and-forget submit, then drop them so we won't resubmit next tick
     for fam, jobs in to_submit.items():
         merge_executor.submit(worker, fam, jobs)
-        # drop from finished_families immediately so we won't resubmit next tick
         finished_families.pop(fam, None)
 
 
