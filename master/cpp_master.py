@@ -2290,6 +2290,7 @@ def merge_and_move(family_name, job_list, cursor, connection):
     # 3) Record results in DB
     insert_sub_analysis_results_to_db(connection, cursor, sub_id, storage_paths, files_created)
 
+
 # a global executor (1 thread) and a lock set
 merge_executor = ThreadPoolExecutor(max_workers=1)
 in_processing_families = set()
@@ -2304,11 +2305,7 @@ def process_finished_families(finished_families, cursor, connection):
     end up using a cursor closed by the main loop.
     """
     def worker(family, jobs):
-        # mark as in-progress
-        with in_processing_families_lock:
-            in_processing_families.add(family)
         try:
-            # open a fresh connection/cursor for this thread
             cpp_config = load_cpp_config()
             conn, cur = connect_db(cpp_config)
             try:
@@ -2319,21 +2316,24 @@ def process_finished_families(finished_families, cursor, connection):
         except Exception:
             logging.exception(f"Error in merge_and_move for family {family}")
         finally:
-            # remove from in-progress set
+            # now that we’re truly done, free the slot
             with in_processing_families_lock:
                 in_processing_families.remove(family)
 
-    # pick out any families not already being processed
-    to_submit = {
-        fam: jobs
-        for fam, jobs in finished_families.items()
-        if fam not in in_processing_families
-    }
+    # 1) decide which families to submit (not already in flight)
+    with in_processing_families_lock:
+        to_submit = {
+            fam: jobs
+            for fam, jobs in finished_families.items()
+            if fam not in in_processing_families
+        }
+        # 2) mark them *before* submitting, so repeated ticks won't re-submit
+        for fam in to_submit:
+            in_processing_families.add(fam)
 
-    # fire-and-forget submit, then drop them so we won't resubmit next tick
+    # 3) submit them and drop from finished_families
     for fam, jobs in to_submit.items():
         merge_executor.submit(worker, fam, jobs)
-        finished_families.pop(fam, None)
 
 
 def main():
