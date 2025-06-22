@@ -2304,6 +2304,10 @@ def process_finished_families(finished_families, cursor, connection):
     Each worker thread opens its own DB connection so it doesn't
     end up using a cursor closed by the main loop.
     """
+
+    logging.info(f"Inside process_finished_families, in_processing_families: {in_processing_families}")
+
+
     def worker(family, jobs):
         try:
             cpp_config = load_cpp_config()
@@ -2327,13 +2331,13 @@ def process_finished_families(finished_families, cursor, connection):
             for fam, jobs in finished_families.items()
             if fam not in in_processing_families
         }
-        # 2) mark them *before* submitting, so repeated ticks won't re-submit
-        for fam in to_submit:
-            in_processing_families.add(fam)
 
-    # 3) submit them and drop from finished_families
+    # 3) submit them 
     for fam, jobs in to_submit.items():
+        in_processing_families.add(fam)
         merge_executor.submit(worker, fam, jobs)
+
+    logging.info(f"Done with process_finished_families, in_processing_families: {in_processing_families}")
 
 
 def main():
