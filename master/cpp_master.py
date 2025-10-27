@@ -492,7 +492,7 @@ def handle_new_jobs(cursor, connection, job_limit=None):
     for analysis in analyses:
 
         # check the analysis type and process by analysis specific function
-        if 'run_on_uppmax' not in analysis['meta'] and 'run_on_dardel' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta']:
+        if 'run_on_uppmax' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta'] and 'run_on_pelle' not in analysis['meta']:
 
             logging.debug(f'checking analysis id { analysis["analysis_id"] }')
 
