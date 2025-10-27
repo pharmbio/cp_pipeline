@@ -1910,73 +1910,74 @@ def handle_finished_analyses(cursor, connection):
 
     # go through the unfinished analyses
     for analysis in analyses:
+        if 'run_on_pelle' not in analysis['meta'] and 'run_on_hpcdev' not in analysis['meta']:
 
-        ### check if all sub analyses for the analysis are finised
+            ### check if all sub analyses for the analysis are finised
 
-        # get all sub analysis belonging to the analysis
+            # get all sub analysis belonging to the analysis
 
-        # fetch all unfinished analyses
+            # fetch all unfinished analyses
 
 
-        sql = (f"""
-            SELECT *
-            FROM image_sub_analyses
-            WHERE analysis_id={analysis['id']}
-            """) # also NOT IN (select * from images_analysis where analysed=None) or something
+            sql = (f"""
+                SELECT *
+                FROM image_sub_analyses
+                WHERE analysis_id={analysis['id']}
+                """) # also NOT IN (select * from images_analysis where analysed=None) or something
 
-        logging.debug("sql" + sql)
+            logging.debug("sql" + sql)
 
-        cursor.execute(sql)
+            cursor.execute(sql)
 
-        sub_analyses = cursor.fetchall()
+            sub_analyses = cursor.fetchall()
 
-        only_finished_subs = True
-        no_failed_subs = True
-        file_list = []
-        # for each sub analysis
-        for sub_analysis in sub_analyses:
+            only_finished_subs = True
+            no_failed_subs = True
+            file_list = []
+            # for each sub analysis
+            for sub_analysis in sub_analyses:
 
-            # check if it is unfinished
-            if not sub_analysis['finish']:
+                # check if it is unfinished
+                if not sub_analysis['finish']:
 
-                # if so, flag to move on to the next analysis
-                only_finished_subs = False
+                    # if so, flag to move on to the next analysis
+                    only_finished_subs = False
 
-            # check if it ended unsuccessfully
-            if sub_analysis['error']:
+                # check if it ended unsuccessfully
+                if sub_analysis['error']:
 
-                # if so, mark the analysis as failed
-                no_failed_subs = False
+                    # if so, mark the analysis as failed
+                    no_failed_subs = False
 
-            # else save the file list
+                # else save the file list
+                if only_finished_subs and no_failed_subs:
+                    file_list += sub_analysis['result']['file_list']
+                    job_folder = sub_analysis['result']['job_folder']
+
+
+            # if all sub analyses were successfully finished, save the total file list and finish time in the db
             if only_finished_subs and no_failed_subs:
-                file_list += sub_analysis['result']['file_list']
-                job_folder = sub_analysis['result']['job_folder']
+
+                # create the result dict
+                result = {'file_list': file_list, 'job_folder': job_folder}
+
+                # create timestamp
+                finish = datetime.datetime.now()
+
+                # construct query
+                query = f""" UPDATE image_analyses
+                            SET finish=%s,
+                                result=%s
+                            WHERE id=%s
+                """
+                cursor.execute(query, [finish, json.dumps(result), analysis['id'], ])
+                connection.commit()
 
 
-        # if all sub analyses were successfully finished, save the total file list and finish time in the db
-        if only_finished_subs and no_failed_subs:
+            # if any sub analysis failed, mark the analysis as failed as well
+            elif not no_failed_subs:
 
-            # create the result dict
-            result = {'file_list': file_list, 'job_folder': job_folder}
-
-            # create timestamp
-            finish = datetime.datetime.now()
-
-            # construct query
-            query = f""" UPDATE image_analyses
-                        SET finish=%s,
-                            result=%s
-                        WHERE id=%s
-            """
-            cursor.execute(query, [finish, json.dumps(result), analysis['id'], ])
-            connection.commit()
-
-
-        # if any sub analysis failed, mark the analysis as failed as well
-        elif not no_failed_subs:
-
-            set_analysis_error(analysis['id'], cursor, connection )
+                set_analysis_error(analysis['id'], cursor, connection )
 
 
 def set_analysis_error(analysis_id, cursor, connection):
