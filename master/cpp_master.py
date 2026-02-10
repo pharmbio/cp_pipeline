@@ -126,7 +126,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
-    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,"
+    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,Metadata_z"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"PathName_{ch_name},"
@@ -170,7 +170,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
             row += f'\"{img_filename}\",'
 
         # add imgset info
-        row += f"{imgset_counter},1,{imgset_counter},\"{img['plate_barcode']}\",{img['site']},\"{img['well']}\",{img['plate_acquisition_id']},"
+        row += f"{imgset_counter},1,{imgset_counter},\"{img['plate_barcode']}\",{img['site']},\"{img['well']}\",{img['plate_acquisition_id']},{img['z']},"
 
         # add file paths
         for img in sorted_imgset:
@@ -2381,8 +2381,8 @@ def main():
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
 
                 finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
-                finished_families_uppmax = fetch_finished_job_families_uppmax(cursor, connection, job_limit = job_limit)
-                finished_families.update(finished_families_uppmax)
+                #finished_families_uppmax = fetch_finished_job_families_uppmax(cursor, connection, job_limit = job_limit)
+                #finished_families.update(finished_families_uppmax)
 
                 # merge and move finised jobs for each family (i.e. merge jobs for a sub analysis)
                 process_finished_families(finished_families, cursor, connection)
@@ -2391,7 +2391,7 @@ def main():
                 handle_finished_analyses(cursor, connection)
 
                 # update hpc status
-                hpc_utils.update_hpc_job_status(Database.get_instance(), cpp_config['uppmax']['user'], cpp_config['uppmax']['hostname'])
+                #hpc_utils.update_hpc_job_status(Database.get_instance(), cpp_config['uppmax']['user'], cpp_config['uppmax']['hostname'])
 
 
             # Catch psycopg2 database errors
