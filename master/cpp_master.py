@@ -126,7 +126,7 @@ def make_imgset_csv(imgsets, channel_map, storage_paths, use_icf):
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"FileName_{ch_name}," #header += f"FileName_w{ch_nr}_{ch_name},"
 
-    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,Metadata_z"
+    header += "Group_Index,Group_Number,ImageNumber,Metadata_Barcode,Metadata_Site,Metadata_Well,Metadata_AcqID,Metadata_z,"
 
     for ch_nr,ch_name in sorted(channel_map.items()):
         header += f"PathName_{ch_name},"
