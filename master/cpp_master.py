@@ -41,6 +41,10 @@ import threading
 import hpc_utils
 from database import Database
 
+CPP_LABEL_SELECTOR = "pod-type=cpp,app=cpp-worker"
+TARGET_ACTIVE_PODS = 70
+MAX_RELEASE_PER_LOOP = 15
+
 # divide a dict into smaller dicts with a set number of items in each
 def chunk_dict(data, chunk_size=1):
 
@@ -281,7 +285,14 @@ metadata:
 
 spec:
   backoffLimit: 1
+  suspend: true
   template:
+    metadata:
+      labels:
+        pod-type: cpp
+        app: cpp-worker
+        analysis_id: "{analysis_id}"
+        sub_analysis_id: "{sub_analysis_id}"
     spec:
       nodeSelector:
         pipelineNode: "true"
@@ -1196,6 +1207,48 @@ def is_kubernetes_job_queue_empty():
 
     logging.info("Finished is_kubernetes_job_queue_empty, is_queue_empty=:" + str(is_queue_empty))
     return is_queue_empty
+
+def unpause_jobs(target_active=TARGET_ACTIVE_PODS, max_release_per_loop=MAX_RELEASE_PER_LOOP, selector=CPP_LABEL_SELECTOR):
+    namespace = get_namespace()
+    batch = kubernetes.client.BatchV1Api()
+    core = kubernetes.client.CoreV1Api()
+
+    jobs = batch.list_namespaced_job(
+        namespace=namespace,
+        label_selector=selector,
+    ).items
+
+    pods = core.list_namespaced_pod(
+        namespace=namespace,
+        label_selector=selector,
+    ).items
+    active_pods = sum(1 for pod in pods if pod.status.phase in ("Pending", "Running"))
+
+    paused_jobs = []
+    for job in jobs:
+        is_suspended = bool(job.spec.suspend)
+        succeeded = job.status.succeeded or 0
+        failed = job.status.failed or 0
+
+        if succeeded > 0 or failed > 0:
+            continue
+        if is_suspended:
+            paused_jobs.append(job)
+
+    to_release = max(0, target_active - active_pods)
+    to_release = min(to_release, max_release_per_loop)
+
+    if to_release > 0 and paused_jobs:
+        paused_jobs.sort(key=lambda job: job.metadata.creation_timestamp)
+        for job in paused_jobs[:to_release]:
+            batch.patch_namespaced_job(
+                name=job.metadata.name,
+                namespace=namespace,
+                body={"spec": {"suspend": False}},
+            )
+        logging.info(f"Released {min(to_release, len(paused_jobs))} paused jobs (active pods={active_pods})")
+    else:
+        logging.info(f"No release (active pods={active_pods}, paused jobs={len(paused_jobs)})")
 
 def delete_finished_jobpods():
     logging.info("inside delete_finished_jobpods")
@@ -2392,6 +2445,7 @@ def main():
                 delete_finished_jobpods()
 
                 handle_new_jobs(cursor, connection, job_limit = job_limit)
+                unpause_jobs()
 
                 finished_families = fetch_finished_job_families(cursor, connection, job_limit = job_limit)
                 #finished_families_uppmax = fetch_finished_job_families_uppmax(cursor, connection, job_limit = job_limit)
@@ -2426,7 +2480,7 @@ def main():
             #print('Exit because single run debug')
             #exit()
 
-            sleeptime = 20
+            sleeptime = 15
             logging.info(f"Going to sleep for {sleeptime} sec")
             time.sleep(sleeptime)
 
@@ -2439,9 +2493,5 @@ if __name__ == "__main__":
 
 
     main()
-
-
-
-
 
 
