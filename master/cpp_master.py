@@ -288,7 +288,7 @@ spec:
       priorityClassName: {priority_class_name}
       securityContext:
         runAsUser: 20000
-        fsGroup: 20000  # Ensure the group ID is set so the user can read the SSH key if needed
+        fsGroup: 20000
       containers:
       - name: cpp-worker
         image: {docker_image}
@@ -303,15 +303,20 @@ spec:
           value: {output_path}
         - name: JOB_TIMEOUT
           value: "{job_timeout}"
-        - name: OMP_NUM_THREADS # This is to prevent multithreading of cellprofiler
+        - name: OMP_NUM_THREADS
           value: "1"
         - name: NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        #
-        # I specify default resources in namespace file now
-        #
+        # ---- some python packages tmp and cache dirs - make sure they write to /tmp
+        - name: TMPDIR
+          value: /tmp
+        - name: XDG_CACHE_HOME
+          value: /tmp/.cache
+        - name: NUMBA_CACHE_DIR
+          value: /tmp/numba
+
         volumeMounts:
         - mountPath: /share/mikro/
           name: mikroimages
@@ -319,11 +324,17 @@ spec:
           name: mikroimages2
         - mountPath: /share/mikro3/
           name: mikroimages3
+        - mountPath: /share/mikro4/
+          name: mikroimages4
         - mountPath: /cpp_work
           name: cpp2
         - mountPath: /share/data/external-datasets
           name: externalimagefiles
+        - mountPath: /tmp
+          name: tmpfs
+
       restartPolicy: Never
+
       volumes:
       - name: mikroimages
         persistentVolumeClaim:
@@ -334,20 +345,22 @@ spec:
       - name: mikroimages3
         persistentVolumeClaim:
           claimName: micro3-images-pvc
-      #- name: cpp
-      #  persistentVolumeClaim:
-      #    claimName: cpp-pvc
+      - name: mikroimages4
+        persistentVolumeClaim:
+          claimName: micro4-images-pvc
       - name: cpp2
         persistentVolumeClaim:
           claimName: cpp2-pvc
-      #- name: kube-config
-      #  secret:
-      #    secretName: cpp-user-kube-config
       - name: externalimagefiles
         persistentVolumeClaim:
           claimName: external-images-pvc
+      - name: tmpfs
+        emptyDir:
+          medium: Memory
+          sizeLimit: 5Gi
 
 """)
+
 
 def is_debug():
     """
@@ -1704,7 +1717,7 @@ def get_analysis_from_db(cursor, analysis_id):
 
 def get_middle_z_plane(cursor, acq_id):
     logging.info(f'Fetching distinct z-plane values for plate acquisition ID: {acq_id}')
-    
+
     # Get a sorted list of unique z values
     query = """
             SELECT DISTINCT z
@@ -1715,18 +1728,18 @@ def get_middle_z_plane(cursor, acq_id):
     logging.info('Executing query: %s with ID: %s', query.strip(), acq_id)
     cursor.execute(query, (acq_id,))
     results = cursor.fetchall()
-    
+
     # Create a list of unique z values
     z_values = [row['z'] for row in results]
-    
+
     if not z_values:
         logging.warning('No distinct z values found for plate acquisition ID: %s', acq_id)
         return None
-    
+
     # Determine the middle index (using lower middle for even counts)
     middle_index = (len(z_values) - 1) // 2
     logging.debug(f"Total unique z values: {len(z_values)}. Middle index: {middle_index}")
-    
+
     return z_values[middle_index]
 
 
@@ -2333,7 +2346,7 @@ def process_finished_families(finished_families, cursor, connection):
             if fam not in in_processing_families
         }
 
-    # 3) submit them 
+    # 3) submit them
     for fam, jobs in to_submit.items():
         in_processing_families.add(fam)
         merge_executor.submit(worker, fam, jobs)
